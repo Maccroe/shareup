@@ -12,8 +12,30 @@
   <body>
     <div class="container">
       <header>
-        <h1>📱 P2P File Share</h1>
-        <p>Send files directly between devices worldwide</p>
+        <div class="header-content">
+          <div class="header-left">
+            <h1>📱 P2P File Share</h1>
+            <p>Send files directly between devices worldwide</p>
+          </div>
+          <div class="header-right">
+            <!-- User menu (hidden by default) -->
+            <div id="user-menu" class="user-menu hidden">
+              <div class="user-info">
+                <span id="user-avatar" class="user-avatar">👤</span>
+                <span id="user-name" class="user-name"></span>
+              </div>
+              <div class="user-dropdown">
+                <button id="user-profile-btn" class="dropdown-item">Profile</button>
+                <button id="user-logout-btn" class="dropdown-item">Logout</button>
+              </div>
+            </div>
+            <!-- Login/Register buttons -->
+            <div id="auth-buttons" class="auth-buttons">
+              <button id="login-btn" class="btn secondary small">Login</button>
+              <button id="register-btn" class="btn primary small">Register</button>
+            </div>
+          </div>
+        </div>
       </header>
 
       <!-- Home Screen -->
@@ -197,6 +219,134 @@
         <div class="loading-content">
           <div class="spinner"></div>
           <p id="loading-text">Creating room...</p>
+        </div>
+      </div>
+
+      <!-- Login Modal -->
+      <div id="login-modal" class="modal hidden">
+        <div class="modal-content auth-modal">
+          <div class="modal-header">
+            <h3>Login to Your Account</h3>
+            <button id="login-close-btn" class="close-btn">&times;</button>
+          </div>
+          <form id="login-form">
+            <div class="input-group">
+              <label for="login-username">Username or Email:</label>
+              <input
+                type="text"
+                id="login-username"
+                placeholder="Enter your username or email"
+                required
+              />
+            </div>
+            <div class="input-group">
+              <label for="login-password">Password:</label>
+              <input
+                type="password"
+                id="login-password"
+                placeholder="Enter your password"
+                required
+              />
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">Login</button>
+              <button type="button" id="show-register-btn" class="btn secondary">
+                Need an account? Register
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Register Modal -->
+      <div id="register-modal" class="modal hidden">
+        <div class="modal-content auth-modal">
+          <div class="modal-header">
+            <h3>Create New Account</h3>
+            <button id="register-close-btn" class="close-btn">&times;</button>
+          </div>
+          <form id="register-form">
+            <div class="input-group">
+              <label for="register-username">Username:</label>
+              <input
+                type="text"
+                id="register-username"
+                placeholder="Choose a username"
+                minlength="3"
+                maxlength="20"
+                required
+              />
+            </div>
+            <div class="input-group">
+              <label for="register-email">Email:</label>
+              <input
+                type="email"
+                id="register-email"
+                placeholder="Enter your email"
+                required
+              />
+            </div>
+            <div class="input-group">
+              <label for="register-password">Password:</label>
+              <input
+                type="password"
+                id="register-password"
+                placeholder="Create a password (min 6 characters)"
+                minlength="6"
+                required
+              />
+            </div>
+            <div class="input-group">
+              <label for="register-confirm-password">Confirm Password:</label>
+              <input
+                type="password"
+                id="register-confirm-password"
+                placeholder="Confirm your password"
+                minlength="6"
+                required
+              />
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">Create Account</button>
+              <button type="button" id="show-login-btn" class="btn secondary">
+                Already have an account? Login
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Profile Modal -->
+      <div id="profile-modal" class="modal hidden">
+        <div class="modal-content profile-modal">
+          <div class="modal-header">
+            <h3>User Profile</h3>
+            <button id="profile-close-btn" class="close-btn">&times;</button>
+          </div>
+          <div class="profile-content">
+            <div class="profile-info">
+              <div class="avatar-section">
+                <div id="profile-avatar" class="profile-avatar">👤</div>
+                <button id="change-avatar-btn" class="btn secondary small">Change Avatar</button>
+              </div>
+              <div class="user-details">
+                <p><strong>Username:</strong> <span id="profile-username"></span></p>
+                <p><strong>Email:</strong> <span id="profile-email"></span></p>
+                <p><strong>Member since:</strong> <span id="profile-joined"></span></p>
+                <p><strong>Last login:</strong> <span id="profile-last-login"></span></p>
+              </div>
+            </div>
+            <div class="room-history">
+              <h4>Recent Rooms</h4>
+              <div id="profile-rooms" class="room-list">
+                <!-- Room history will be populated here -->
+              </div>
+            </div>
+            <div class="profile-actions">
+              <button id="change-password-btn" class="btn secondary">Change Password</button>
+              <button id="delete-account-btn" class="btn danger">Delete Account</button>
+            </div>
+          </div>
         </div>
       </div>
 

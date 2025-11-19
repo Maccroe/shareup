@@ -15,10 +15,76 @@ window.outgoingIdByKey = new Map();
 // Control flags for each outgoing transfer (paused / cancelled)
 window.outgoingControl = new Map();
 
+// Authentication state
+let currentUser = null;
+let authToken = null;
+
+// Authentication functions
+async function checkAuthStatus() {
+  const token = localStorage.getItem('authToken');
+  if (!token) return null;
+
+  try {
+    const response = await fetch('/api/auth/verify', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    const data = await response.json();
+    if (data.success && data.authenticated) {
+      currentUser = data.user;
+      authToken = token;
+      updateUserUI(true);
+      return data.user;
+    } else {
+      localStorage.removeItem('authToken');
+      return null;
+    }
+  } catch (error) {
+    console.error('Auth check error:', error);
+    localStorage.removeItem('authToken');
+    return null;
+  }
+}
+
+function updateUserUI(isLoggedIn) {
+  const userMenu = document.getElementById('user-menu');
+  const authButtons = document.getElementById('auth-buttons');
+
+  if (isLoggedIn && currentUser) {
+    userMenu.classList.remove('hidden');
+    authButtons.classList.add('hidden');
+
+    document.getElementById('user-name').textContent = currentUser.username;
+    if (currentUser.avatar) {
+      document.getElementById('user-avatar').textContent = currentUser.avatar;
+    }
+  } else {
+    userMenu.classList.add('hidden');
+    authButtons.classList.remove('hidden');
+  }
+}
+
+function logout() {
+  currentUser = null;
+  authToken = null;
+  localStorage.removeItem('authToken');
+  updateUserUI(false);
+
+  // Reconnect socket without auth
+  if (socket) {
+    socket.disconnect();
+    initializeSocket();
+  }
+}
+
 // Initialize the application
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await checkAuthStatus();
   initializeSocket();
   setupEventListeners();
+  setupAuthEventListeners();
   showScreen('home');
   // Disable file selection until peer connection established
   setFileSelectionEnabled(false);
@@ -26,7 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Socket.io initialization
 function initializeSocket() {
-  socket = io();
+  const options = {};
+  if (authToken) {
+    options.auth = { token: authToken };
+  }
+
+  socket = io(options);
 
   socket.on('connect', () => {
     console.log('Connected to server');
@@ -167,6 +238,222 @@ function setFileSelectionEnabled(enabled) {
   if (dropZone) {
     dropZone.classList.toggle('disabled', !enabled);
     dropZone.setAttribute('aria-disabled', !enabled ? 'true' : 'false');
+  }
+}
+
+// Authentication event listeners
+function setupAuthEventListeners() {
+  // Login/Register button listeners
+  document.getElementById('login-btn').addEventListener('click', () => showModal('login-modal'));
+  document.getElementById('register-btn').addEventListener('click', () => showModal('register-modal'));
+
+  // Modal close buttons
+  document.getElementById('login-close-btn').addEventListener('click', () => hideModal('login-modal'));
+  document.getElementById('register-close-btn').addEventListener('click', () => hideModal('register-modal'));
+  document.getElementById('profile-close-btn').addEventListener('click', () => hideModal('profile-modal'));
+
+  // Switch between login and register
+  document.getElementById('show-register-btn').addEventListener('click', () => {
+    hideModal('login-modal');
+    showModal('register-modal');
+  });
+  document.getElementById('show-login-btn').addEventListener('click', () => {
+    hideModal('register-modal');
+    showModal('login-modal');
+  });
+
+  // Form submissions
+  document.getElementById('login-form').addEventListener('submit', handleLogin);
+  document.getElementById('register-form').addEventListener('submit', handleRegister);
+
+  // User menu actions
+  document.getElementById('user-profile-btn').addEventListener('click', showProfile);
+  document.getElementById('user-logout-btn').addEventListener('click', logout);
+
+  // User avatar click to open dropdown
+  const userMenu = document.getElementById('user-menu');
+  userMenu.addEventListener('click', () => {
+    userMenu.querySelector('.user-dropdown').classList.toggle('show');
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!userMenu.contains(e.target)) {
+      userMenu.querySelector('.user-dropdown').classList.remove('show');
+    }
+  });
+}
+
+// Modal management
+function showModal(modalId) {
+  document.getElementById(modalId).classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function hideModal(modalId) {
+  document.getElementById(modalId).classList.add('hidden');
+  document.body.style.overflow = 'auto';
+}
+
+// Authentication handlers
+async function handleLogin(e) {
+  e.preventDefault();
+
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+
+  if (!username || !password) {
+    showError('Please fill in all fields');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        login: username,
+        password: password
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      currentUser = data.user;
+      authToken = data.token;
+      localStorage.setItem('authToken', data.token);
+
+      hideModal('login-modal');
+      updateUserUI(true);
+
+      // Reconnect socket with auth
+      socket.disconnect();
+      initializeSocket();
+
+      showError('Login successful!', false); // Show as success message
+    } else {
+      showError(data.error || 'Login failed');
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    showError('Login failed. Please try again.');
+  }
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+
+  const username = document.getElementById('register-username').value.trim();
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value;
+  const confirmPassword = document.getElementById('register-confirm-password').value;
+
+  if (!username || !email || !password || !confirmPassword) {
+    showError('Please fill in all fields');
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    showError('Passwords do not match');
+    return;
+  }
+
+  if (password.length < 6) {
+    showError('Password must be at least 6 characters long');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        username: username,
+        email: email,
+        password: password
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      currentUser = data.user;
+      authToken = data.token;
+      localStorage.setItem('authToken', data.token);
+
+      hideModal('register-modal');
+      updateUserUI(true);
+
+      // Reconnect socket with auth
+      socket.disconnect();
+      initializeSocket();
+
+      showError('Registration successful!', false); // Show as success message
+    } else {
+      showError(data.error || 'Registration failed');
+    }
+  } catch (error) {
+    console.error('Registration error:', error);
+    showError('Registration failed. Please try again.');
+  }
+}
+
+async function showProfile() {
+  if (!currentUser || !authToken) return;
+
+  try {
+    const response = await fetch('/api/auth/profile', {
+      headers: {
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      // Populate profile modal
+      document.getElementById('profile-username').textContent = data.user.username;
+      document.getElementById('profile-email').textContent = currentUser.email || 'Not provided';
+      document.getElementById('profile-joined').textContent = new Date(data.user.createdAt).toLocaleDateString();
+      document.getElementById('profile-last-login').textContent = new Date(data.user.lastLogin).toLocaleDateString();
+
+      if (data.user.avatar) {
+        document.getElementById('profile-avatar').textContent = data.user.avatar;
+      }
+
+      // Show recent rooms
+      const roomsList = document.getElementById('profile-rooms');
+      roomsList.innerHTML = '';
+
+      if (data.rooms && data.rooms.length > 0) {
+        data.rooms.slice(-5).reverse().forEach(room => {
+          const roomItem = document.createElement('div');
+          roomItem.className = 'room-item';
+          roomItem.innerHTML = `
+            <div class="room-info">
+              <span class="room-id">${room.roomId}</span>
+              <span class="room-role">${room.role}</span>
+              <span class="room-date">${new Date(room.joinedAt).toLocaleDateString()}</span>
+            </div>
+          `;
+          roomsList.appendChild(roomItem);
+        });
+      } else {
+        roomsList.innerHTML = '<p class="no-rooms">No recent rooms</p>';
+      }
+
+      showModal('profile-modal');
+    } else {
+      showError('Failed to load profile');
+    }
+  } catch (error) {
+    console.error('Profile error:', error);
+    showError('Failed to load profile');
   }
 }
 
@@ -961,7 +1248,11 @@ function showLoading(message) {
   showScreen('loading');
 }
 
-function showError(message) {
+function showError(message, isError = true) {
+  if (!isError) {
+    showSuccess(message);
+    return;
+  }
   document.getElementById('error-message').textContent = message;
   document.getElementById('error-modal').classList.remove('hidden');
 }
