@@ -20,6 +20,10 @@ let currentUser = null;
 let authToken = null;
 let isReconnecting = false; // Flag to prevent disconnect error during auth reconnection
 
+// Room timer state
+let roomTimer = null;
+let roomExpirationTime = null;
+
 // Authentication functions
 async function checkAuthStatus() {
   const token = localStorage.getItem('authToken');
@@ -136,6 +140,34 @@ function initializeSocket() {
   socket.on('user-left', (data) => {
     console.log('User left:', data.userId);
     updateConnectionStatus(false);
+  });
+
+  // Room expiration event
+  socket.on('room-expired', (data) => {
+    console.log('Room expired:', data);
+    clearRoomTimer();
+
+    // Clean up room state and redirect to home
+    if (webrtc) {
+      webrtc.disconnect();
+      webrtc = null;
+    }
+
+    currentRoom = null;
+    selectedFiles = [];
+    sentFiles = [];
+    clearSelectedFiles();
+    clearSentFiles();
+    clearReceivedFiles();
+    hideTransferProgress();
+
+    // Show expiration modal, then redirect
+    showRoomExpiredModal(data.message);
+
+    // Auto-redirect to home after showing the modal
+    setTimeout(() => {
+      showScreen('home');
+    }, 3000); // 3 seconds to read the message
   });
 
   // WebRTC signaling
@@ -301,6 +333,17 @@ function setupAuthEventListeners() {
     if (!userMenu.contains(e.target)) {
       userMenu.querySelector('.user-dropdown').classList.remove('show');
     }
+  });
+
+  // Room expiration modal
+  document.getElementById('expired-login-btn').addEventListener('click', () => {
+    hideModal('room-expired-modal');
+    showScreen('home'); // Go to home first
+    showModal('login-modal');
+  });
+  document.getElementById('expired-close-btn').addEventListener('click', () => {
+    hideModal('room-expired-modal');
+    showScreen('home');
   });
 }
 
@@ -578,6 +621,145 @@ async function showProfile() {
   }
 }
 
+// Room timer functions
+function startRoomTimer(expirationTime) {
+  if (!expirationTime) return;
+
+  roomExpirationTime = new Date(expirationTime);
+  updateTimerDisplay();
+
+  roomTimer = setInterval(() => {
+    updateTimerDisplay();
+
+    const timeLeft = roomExpirationTime - new Date();
+    if (timeLeft <= 0) {
+      clearRoomTimer();
+    }
+  }, 1000);
+}
+
+function clearRoomTimer() {
+  if (roomTimer) {
+    clearInterval(roomTimer);
+    roomTimer = null;
+  }
+  roomExpirationTime = null;
+
+  const timerElement = document.getElementById('room-timer');
+  if (timerElement) {
+    timerElement.style.display = 'none';
+  }
+}
+
+function updateTimerDisplay() {
+  if (!roomExpirationTime) return;
+
+  const timeLeft = roomExpirationTime - new Date();
+  if (timeLeft <= 0) return;
+
+  const minutes = Math.floor(timeLeft / 60000);
+  const seconds = Math.floor((timeLeft % 60000) / 1000);
+
+  let timerElement = document.getElementById('room-timer');
+  if (!timerElement) {
+    // Create timer element if it doesn't exist
+    timerElement = document.createElement('div');
+    timerElement.id = 'room-timer';
+    timerElement.className = 'room-timer';
+
+    const roomHeader = document.querySelector('.room-header');
+    if (roomHeader) {
+      roomHeader.appendChild(timerElement);
+    }
+  }
+
+  timerElement.innerHTML = `
+    <span class="timer-icon">⏰</span>
+    <span class="timer-text">Room expires in: ${minutes}:${seconds.toString().padStart(2, '0')}</span>
+  `;
+  timerElement.style.display = 'flex';
+
+  // Add warning style when under 30 seconds
+  if (timeLeft < 30000) {
+    timerElement.classList.add('warning');
+  }
+}
+
+// Room timer functions
+function startRoomTimer(expirationTime) {
+  if (!expirationTime) return;
+
+  roomExpirationTime = new Date(expirationTime);
+  updateTimerDisplay();
+
+  roomTimer = setInterval(() => {
+    updateTimerDisplay();
+
+    const timeLeft = roomExpirationTime - new Date();
+    if (timeLeft <= 0) {
+      clearRoomTimer();
+    }
+  }, 1000);
+}
+
+function clearRoomTimer() {
+  if (roomTimer) {
+    clearInterval(roomTimer);
+    roomTimer = null;
+  }
+  roomExpirationTime = null;
+
+  const timerElement = document.getElementById('room-timer');
+  if (timerElement) {
+    timerElement.style.display = 'none';
+  }
+}
+
+function updateTimerDisplay() {
+  if (!roomExpirationTime) return;
+
+  const timeLeft = roomExpirationTime - new Date();
+  if (timeLeft <= 0) return;
+
+  const minutes = Math.floor(timeLeft / 60000);
+  const seconds = Math.floor((timeLeft % 60000) / 1000);
+
+  let timerElement = document.getElementById('room-timer');
+  if (!timerElement) {
+    // Create timer element if it doesn't exist
+    timerElement = document.createElement('div');
+    timerElement.id = 'room-timer';
+    timerElement.className = 'room-timer';
+
+    const roomHeader = document.querySelector('.room-header');
+    if (roomHeader) {
+      roomHeader.appendChild(timerElement);
+    }
+  }
+
+  timerElement.innerHTML = `
+    <span class="timer-icon">⏰</span>
+    <span class="timer-text">Room expires in: ${minutes}:${seconds.toString().padStart(2, '0')}</span>
+  `;
+  timerElement.style.display = 'flex';
+
+  // Add warning style when under 30 seconds
+  if (timeLeft < 30000) {
+    timerElement.classList.add('warning');
+  }
+}
+
+function showRoomExpiredModal(message) {
+  // Clean up room timer display
+  clearRoomTimer();
+
+  // Show the modal
+  const modal = document.getElementById('room-expired-modal');
+  if (modal) {
+    showModal('room-expired-modal');
+  }
+}
+
 // Screen Management
 function showScreen(screenName) {
   // Hide all screens
@@ -609,6 +791,11 @@ async function createRoom() {
 
     currentRoom = response.roomId;
     document.getElementById('room-code-display').textContent = response.roomId;
+
+    // Start timer for anonymous users
+    if (response.isAnonymous && response.expiresAt) {
+      startRoomTimer(response.expiresAt);
+    }
 
     // Initialize WebRTC
     webrtc = new WebRTCManager();
@@ -669,6 +856,9 @@ async function joinRoom() {
 }
 
 function leaveRoom() {
+  // Clear room timer
+  clearRoomTimer();
+
   if (webrtc) {
     webrtc.disconnect();
     webrtc = null;

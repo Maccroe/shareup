@@ -53,13 +53,16 @@ io.on('connection', (socket) => {
   // Create a new room
   socket.on('create-room', async (callback) => {
     const roomId = uuidv4().substring(0, 8).toUpperCase();
+    const isAnonymous = !socket.user;
     const roomData = {
       id: roomId,
       creator: socket.id,
       creatorUser: socket.user ? socket.user.getPublicProfile() : null,
       participants: [socket.id],
       participantUsers: socket.user ? [socket.user.getPublicProfile()] : [],
-      createdAt: new Date()
+      createdAt: new Date(),
+      isAnonymous: isAnonymous,
+      expiresAt: isAnonymous ? new Date(Date.now() + 2 * 60 * 1000) : null // 2 minutes for anonymous
     };
 
     rooms.set(roomId, roomData);
@@ -72,13 +75,33 @@ io.on('connection', (socket) => {
       } catch (error) {
         console.error('Error adding room to user history:', error);
       }
+    } else {
+      // Set timer for anonymous room deletion
+      setTimeout(() => {
+        const room = rooms.get(roomId);
+        if (room && room.isAnonymous) {
+          console.log(`Anonymous room ${roomId} expired after 2 minutes`);
+          // Notify participants about expiration
+          io.to(roomId).emit('room-expired', {
+            roomId,
+            message: 'Room has expired. Login to create rooms with unlimited time.'
+          });
+          // Delete room after notification
+          setTimeout(() => {
+            rooms.delete(roomId);
+            console.log(`Room ${roomId} deleted after expiration`);
+          }, 5000); // 5 second delay to show message
+        }
+      }, 2 * 60 * 1000); // 2 minutes
     }
 
-    console.log(`Room created: ${roomId} by ${socket.user ? socket.user.username : 'anonymous'}`);
-    callback({ roomId });
-  });
-
-  // Join an existing room
+    console.log(`Room created: ${roomId} by ${socket.user ? socket.user.username : 'anonymous'} ${isAnonymous ? '(2min limit)' : '(unlimited)'}`);
+    callback({
+      roomId,
+      isAnonymous,
+      expiresAt: roomData.expiresAt
+    });
+  });  // Join an existing room
   socket.on('join-room', async ({ roomId }, callback) => {
     const room = rooms.get(roomId);
 
