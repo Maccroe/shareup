@@ -58,19 +58,50 @@ const rooms = new Map();
 
 const DAILY_ROOM_LIMIT = 5;
 
-// Generate user fingerprint for anonymous limit tracking
+// Enhanced user fingerprinting for anonymous limit tracking
 function generateUserFingerprint(socket) {
   const ip = socket.handshake.address || socket.conn.remoteAddress || 'unknown';
   const userAgent = socket.handshake.headers['user-agent'] || 'unknown';
   const acceptLanguage = socket.handshake.headers['accept-language'] || 'unknown';
+  const acceptEncoding = socket.handshake.headers['accept-encoding'] || 'unknown';
+  const referer = socket.handshake.headers['referer'] || 'unknown';
+  const origin = socket.handshake.headers['origin'] || 'unknown';
 
-  // Create fingerprint from multiple factors
+  // Extract more specific browser/device info from User-Agent
+  const uaLower = userAgent.toLowerCase();
+  const osPattern = /(windows|mac|linux|android|ios|iphone|ipad)/i;
+  const browserPattern = /(chrome|firefox|safari|edge|opera)/i;
+  const os = (uaLower.match(osPattern) || ['unknown'])[0];
+  const browser = (uaLower.match(browserPattern) || ['unknown'])[0];
+
+  // Create multiple fingerprint layers
   const crypto = require('crypto');
-  const fingerprint = crypto.createHash('sha256')
-    .update(ip + userAgent + acceptLanguage)
+
+  // Primary fingerprint (main identifier)
+  const primaryFingerprint = crypto.createHash('sha256')
+    .update(userAgent + acceptLanguage + acceptEncoding + os + browser)
     .digest('hex').substring(0, 16);
 
-  return { fingerprint, ip };
+  // Secondary fingerprint (network-based)
+  const networkFingerprint = crypto.createHash('sha256')
+    .update(ip + origin + referer)
+    .digest('hex').substring(0, 12);
+
+  // Device fingerprint (browser/OS specific)
+  const deviceFingerprint = crypto.createHash('sha256')
+    .update(os + browser + acceptLanguage)
+    .digest('hex').substring(0, 12);
+
+  return {
+    primary: primaryFingerprint,
+    network: networkFingerprint,
+    device: deviceFingerprint,
+    ip: ip,
+    userAgent: userAgent,
+    os: os,
+    browser: browser,
+    language: acceptLanguage
+  };
 }
 
 // Get time until daily limit reset (midnight)
@@ -90,42 +121,112 @@ function getTimeUntilReset() {
   };
 }
 
-// Check if anonymous user can create/join room
+// Check if anonymous user can create/join room with enhanced bypass protection
 async function checkAnonymousRoomLimit(socket) {
-  const { fingerprint, ip } = generateUserFingerprint(socket);
+  const fingerprints = generateUserFingerprint(socket);
   const today = new Date().toDateString();
 
   try {
-    let limitData = await AnonymousLimit.findOne({ fingerprint });
+    // Check all fingerprint variations to detect bypass attempts
+    const [primaryData, networkMatches, deviceMatches] = await Promise.all([
+      AnonymousLimit.findOne({ fingerprint: fingerprints.primary }),
+      AnonymousLimit.find({
+        date: today,
+        $or: [
+          { 'metadata.network': fingerprints.network },
+          { 'ips': fingerprints.ip }
+        ]
+      }),
+      AnonymousLimit.find({
+        date: today,
+        'metadata.device': fingerprints.device,
+        'metadata.os': fingerprints.os,
+        'metadata.browser': fingerprints.browser
+      })
+    ]);
 
+    // Calculate total usage across all related fingerprints
+    const relatedFingerprints = new Set();
+    let totalUsage = 0;
+
+    if (primaryData) {
+      relatedFingerprints.add(primaryData.fingerprint);
+      totalUsage += primaryData.count;
+    }
+
+    // Add usage from network matches (same IP/network fingerprint)
+    networkMatches.forEach(match => {
+      if (!relatedFingerprints.has(match.fingerprint)) {
+        relatedFingerprints.add(match.fingerprint);
+        totalUsage += match.count;
+      }
+    });
+
+    // Add usage from device matches (same device signature)
+    deviceMatches.forEach(match => {
+      if (!relatedFingerprints.has(match.fingerprint)) {
+        relatedFingerprints.add(match.fingerprint);
+        totalUsage += match.count;
+      }
+    });
+
+    // Create or update primary fingerprint data
+    let limitData = primaryData;
     if (!limitData) {
-      // Create new limit entry
       limitData = new AnonymousLimit({
-        fingerprint,
+        fingerprint: fingerprints.primary,
         count: 0,
         date: today,
-        ips: [ip]
+        ips: [fingerprints.ip],
+        metadata: {
+          network: fingerprints.network,
+          device: fingerprints.device,
+          os: fingerprints.os,
+          browser: fingerprints.browser,
+          language: fingerprints.language,
+          userAgent: fingerprints.userAgent,
+          relatedFingerprints: Array.from(relatedFingerprints)
+        }
       });
-      await limitData.save();
     } else {
-      // Check if it's a new day
+      // Update existing data
       if (limitData.date !== today) {
         limitData.count = 0;
         limitData.date = today;
-        limitData.ips = [ip];
-        await limitData.save();
+        limitData.ips = [fingerprints.ip];
+        totalUsage = 0; // Reset for new day
       } else {
         // Add current IP if not already present
-        if (!limitData.ips.includes(ip)) {
-          limitData.ips.push(ip);
-          await limitData.save();
+        if (!limitData.ips.includes(fingerprints.ip)) {
+          limitData.ips.push(fingerprints.ip);
         }
       }
+
+      // Update metadata with latest info
+      limitData.metadata = {
+        ...limitData.metadata,
+        network: fingerprints.network,
+        device: fingerprints.device,
+        os: fingerprints.os,
+        browser: fingerprints.browser,
+        language: fingerprints.language,
+        userAgent: fingerprints.userAgent,
+        relatedFingerprints: Array.from(relatedFingerprints)
+      };
     }
 
-    // Check limit
-    if (limitData.count >= DAILY_ROOM_LIMIT) {
+    await limitData.save();
+
+    // Use the higher of individual count or total related usage
+    const effectiveUsage = Math.max(limitData.count, totalUsage);
+
+    // Check limit against effective usage
+    if (effectiveUsage >= DAILY_ROOM_LIMIT) {
       const resetInfo = getTimeUntilReset();
+
+      // Log bypass attempt for monitoring
+      console.log(`Bypass attempt detected - Primary: ${fingerprints.primary}, Related: ${relatedFingerprints.size}, Total usage: ${effectiveUsage}`);
+
       return {
         allowed: false,
         remaining: 0,
@@ -136,7 +237,7 @@ async function checkAnonymousRoomLimit(socket) {
 
     return {
       allowed: true,
-      remaining: DAILY_ROOM_LIMIT - limitData.count,
+      remaining: DAILY_ROOM_LIMIT - effectiveUsage,
       resetTime: getTimeUntilReset(),
       message: null
     };
@@ -154,21 +255,19 @@ async function checkAnonymousRoomLimit(socket) {
 
 // Increment room usage for anonymous user
 async function incrementAnonymousRoomUsage(socket) {
-  const { fingerprint } = generateUserFingerprint(socket);
+  const fingerprints = generateUserFingerprint(socket);
 
   try {
-    const limitData = await AnonymousLimit.findOne({ fingerprint });
+    const limitData = await AnonymousLimit.findOne({ fingerprint: fingerprints.primary });
     if (limitData) {
       limitData.count++;
       await limitData.save();
-      console.log(`Anonymous user ${fingerprint} used ${limitData.count}/${DAILY_ROOM_LIMIT} daily rooms`);
+      console.log(`Anonymous user ${fingerprints.primary} used ${limitData.count}/${DAILY_ROOM_LIMIT} daily rooms (Device: ${fingerprints.os}/${fingerprints.browser})`);
     }
   } catch (error) {
     console.error('Error incrementing room usage:', error);
   }
-}
-
-// Serve main page
+}// Serve main page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
