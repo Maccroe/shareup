@@ -94,6 +94,7 @@ userSchema.methods.getPublicProfile = function () {
   return {
     id: this._id,
     username: this.username,
+    email: this.email,
     avatar: this.avatar,
     lastLogin: this.lastLogin,
     createdAt: this.createdAt

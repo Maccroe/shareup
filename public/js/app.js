@@ -418,7 +418,7 @@ async function showProfile() {
     if (data.success) {
       // Populate profile modal
       document.getElementById('profile-username').textContent = data.user.username;
-      document.getElementById('profile-email').textContent = currentUser.email || 'Not provided';
+      document.getElementById('profile-email').textContent = (data.user.email) ? data.user.email : 'Not provided';
       document.getElementById('profile-joined').textContent = new Date(data.user.createdAt).toLocaleDateString();
       document.getElementById('profile-last-login').textContent = new Date(data.user.lastLogin).toLocaleDateString();
 
