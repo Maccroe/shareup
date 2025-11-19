@@ -18,6 +18,7 @@ window.outgoingControl = new Map();
 // Authentication state
 let currentUser = null;
 let authToken = null;
+let isReconnecting = false; // Flag to prevent disconnect error during auth reconnection
 
 // Authentication functions
 async function checkAuthStatus() {
@@ -79,8 +80,12 @@ function logout() {
 
   // Reconnect socket without auth
   if (socket) {
+    isReconnecting = true;
     socket.disconnect();
-    initializeSocket();
+    setTimeout(() => {
+      initializeSocket();
+      isReconnecting = false;
+    }, 100);
   }
 }
 
@@ -106,6 +111,7 @@ function initializeSocket() {
 
   socket.on('connect', () => {
     console.log('Connected to server');
+    isReconnecting = false; // Reset flag on successful connection
   });
 
   socket.on('disconnect', () => {
@@ -113,7 +119,10 @@ function initializeSocket() {
     if (webrtc) {
       webrtc.disconnect();
     }
-    showError('Connection lost. Please refresh the page.');
+    // Only show error if it's not an intentional reconnection
+    if (!isReconnecting) {
+      showError('Connection lost. Please refresh the page.');
+    }
   });
 
   // Room events
@@ -341,8 +350,12 @@ async function handleLogin(e) {
       updateUserUI(true);
 
       // Reconnect socket with auth
+      isReconnecting = true;
       socket.disconnect();
-      initializeSocket();
+      setTimeout(() => {
+        initializeSocket();
+        isReconnecting = false;
+      }, 100);
 
       showError('Login successful!', false); // Show as success message
     } else {
@@ -401,8 +414,12 @@ async function handleRegister(e) {
       updateUserUI(true);
 
       // Reconnect socket with auth
+      isReconnecting = true;
       socket.disconnect();
-      initializeSocket();
+      setTimeout(() => {
+        initializeSocket();
+        isReconnecting = false;
+      }, 100);
 
       showError('Registration successful!', false); // Show as success message
     } else {
