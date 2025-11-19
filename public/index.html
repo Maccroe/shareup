@@ -75,6 +75,14 @@
             <p>Perfect experience on phones and tablets</p>
           </div>
         </div>
+
+        <!-- Room History Section (visible only for logged-in users) -->
+        <div id="room-history-section" class="room-history hidden">
+          <h3>Your Room History</h3>
+          <div id="room-history-list" class="room-history-list">
+            <!-- Dynamic room history will be populated here -->
+          </div>
+        </div>
       </div>
 
       <!-- Join Room Screen -->
@@ -101,6 +109,15 @@
       <div id="room-screen" class="screen">
         <div class="room-header">
           <h2>Room: <span id="room-code-display"></span></h2>
+          <div class="room-controls">
+            <button
+              id="delete-room-btn"
+              class="btn secondary small hidden"
+              title="Delete Room"
+            >
+              🗑️ Delete Room
+            </button>
+          </div>
           <div class="connection-status" id="connection-status">
             <span class="status-indicator"></span>
             <span class="status-text">Waiting for connection...</span>

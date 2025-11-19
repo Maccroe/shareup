@@ -1,8 +1,24 @@
-# Anonymous User Limitations
+# Anonymous User Limitations & Room Management
 
 ## Overview
 
-Anonymous users now have multiple restrictions to encourage registration while still providing a functional experience. These limitations create a progressive upgrade path that incentivizes users to create accounts.
+Anonymous users have multiple restrictions to encourage registration while maintaining functionality. The system now includes comprehensive room management with automatic MongoDB cleanup and 24-hour persistence for logged-in users.
+
+## MongoDB Room Storage & Auto-Deletion
+
+### Database Architecture
+
+- **Room Collection**: All rooms are stored in MongoDB with TTL (Time To Live) indexing
+- **Automatic Expiration**: MongoDB automatically deletes expired rooms using TTL index
+- **Periodic Cleanup**: Server runs cleanup every 5 minutes as backup to TTL
+- **Memory + Database**: Rooms stored in both memory (for speed) and MongoDB (for persistence)
+
+### Auto-Deletion System
+
+- **TTL Index**: MongoDB automatically removes expired rooms
+- **Server Timers**: Redundant deletion timers for immediate cleanup
+- **Startup Cleanup**: Expired rooms cleaned on server restart
+- **Graceful Notifications**: Users notified before room deletion
 
 ## Daily Room Limits
 
@@ -17,8 +33,27 @@ Anonymous users now have multiple restrictions to encourage registration while s
 ### Logged-in Users
 
 - **Unlimited rooms**: No daily restrictions
+- **Room persistence**: Rooms last for 24 hours instead of 2 minutes
 - **Room history**: All rooms tracked in user profile
-- **No expiration**: Rooms don't expire automatically
+- **Room rejoin**: Can rejoin any room within 24 hours
+- **Room deletion**: Creators can delete rooms they created
+
+## Room Duration and Management
+
+### Anonymous Users
+
+- **Room duration**: 2 minutes before automatic expiration
+- **No persistence**: Cannot rejoin expired rooms
+- **No history**: No record of past rooms
+- **No control**: Cannot delete or manage rooms
+
+### Logged-in Users
+
+- **Room duration**: 24 hours before automatic expiration
+- **Room history**: Can view all recent rooms with expiration times
+- **Rejoin capability**: Can rejoin any room within 24 hours
+- **Delete control**: Room creators can delete rooms before expiration
+- **Role tracking**: Clear distinction between creators and participants
 
 ## File Size Limits
 
@@ -125,15 +160,46 @@ await new Promise((resolve) => setTimeout(resolve, throttleDelay));
 
 ### For Registered Users
 
-- **Full functionality**: No restrictions
-- **Better experience**: Faster transfers, unlimited sizes
-- **Clear benefits**: Sees value of their account
+- **Full functionality**: No restrictions on files or rooms
+- **Better experience**: Faster transfers, unlimited sizes, persistent rooms
+- **Room control**: Can manage, rejoin, and delete rooms
+- **Clear benefits**: Long-lasting rooms with full management features
 
 ### For the App
 
 - **Encourages registration**: Clear incentive to sign up
 - **Resource management**: Prevents abuse of anonymous access
 - **Conversion funnel**: Natural upgrade path
+
+## Error Messages
+
+### Room Expired (Anonymous)
+
+```
+"This room has expired (2 minutes max for anonymous users).
+Login for 24-hour room persistence and rejoin capability."
+```
+
+### Room Expired (Logged-in)
+
+```
+"This room has expired after 24 hours.
+Create a new room to continue."
+```
+
+### Room Not Found (Rejoin)
+
+```
+"Room not found or expired.
+Check your room history for active rooms."
+```
+
+### Delete Room Confirmation
+
+```
+"Are you sure you want to delete this room?
+This action cannot be undone."
+```
 
 ## Error Messages
 
@@ -167,5 +233,27 @@ Maximum size is 500MB."
 2. Upload large files (up to 500MB) → Works normally
 3. Observe full speed transfers
 4. See green unlimited notification
+5. View room history after leaving
+6. Rejoin room from history
+7. Delete room as creator
 
-The system provides clear differentiation between anonymous and registered users while maintaining core functionality for both user types.
+### Room Management Test
+
+1. **Database Persistence**: Create room → Room saved in MongoDB with expiration
+2. **Auto-Cleanup**: Wait for expiration → Room automatically deleted from database
+3. **Server Restart**: Restart server → Expired rooms cleaned on startup
+4. **Memory Sync**: Check room history → Only active rooms shown
+5. **TTL Verification**: Check MongoDB → Expired documents automatically removed
+
+### Database Verification
+
+You can verify the auto-deletion system by checking the MongoDB collection:
+
+```javascript
+// In MongoDB shell
+use shareup
+db.rooms.find() // See active rooms
+db.rooms.getIndexes() // Verify TTL index on expiresAt field
+```
+
+The system provides clear differentiation between anonymous and registered users while maintaining core functionality for both user types. **All room data is now properly managed in MongoDB with automatic cleanup.**

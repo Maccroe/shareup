@@ -48,7 +48,13 @@ class WebRTCManager {
 
       if (state === 'connected') {
         updateConnectionStatus(true);
+        // Notify server that connection is established
+        this.socket.emit('connection-established', { roomId: this.roomId });
       } else if (state === 'disconnected' || state === 'failed') {
+        // Ensure data channel can be recreated on next negotiation
+        if (this.dataChannel && this.dataChannel.readyState !== 'open') {
+          this.dataChannel = null;
+        }
         updateConnectionStatus(false);
       }
     };
@@ -76,7 +82,7 @@ class WebRTCManager {
 
   async createOffer() {
     this.isInitiator = true;
-    if (!this.dataChannel) {
+    if (!this.dataChannel || this.dataChannel.readyState === 'closed') {
       // Create data channel once, before first offer, to lock m-line order
       this.dataChannel = this.peerConnection.createDataChannel('fileTransfer', { ordered: true });
       this.setupDataChannel(this.dataChannel);
@@ -134,10 +140,14 @@ class WebRTCManager {
     channel.onopen = () => {
       console.log('Data channel opened');
       updateConnectionStatus(true);
+      // Notify server that WebRTC is ready
+      this.socket.emit('connection-ready', { roomId: this.roomId });
     };
 
     channel.onclose = () => {
       console.log('Data channel closed');
+      // Allow a fresh channel to be created on next offer
+      this.dataChannel = null;
       updateConnectionStatus(false);
     };
 

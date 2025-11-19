@@ -74,17 +74,26 @@ function updateUserUI(isLoggedIn) {
 
     // Update file limit info for logged-in users
     if (fileLimitInfo) {
-      fileLimitInfo.textContent = 'Logged in: Unlimited file sizes • Full speed transfers';
+      fileLimitInfo.textContent = 'Logged in: Unlimited file sizes • Full speed transfers • 24-hour room persistence';
       fileLimitInfo.classList.add('logged-in');
     }
+
+    // Load room history for logged-in users
+    setTimeout(() => loadRoomHistory(), 100);
   } else {
     userMenu.classList.add('hidden');
     authButtons.classList.remove('hidden');
 
     // Update file limit info for anonymous users
     if (fileLimitInfo) {
-      fileLimitInfo.textContent = 'Anonymous users: 30MB limit per file • Login for unlimited sizes';
+      fileLimitInfo.textContent = 'Anonymous users: 30MB limit per file • 0.03 MB/s speed • 2-minute rooms • Login for premium features';
       fileLimitInfo.classList.remove('logged-in');
+    }
+
+    // Hide room history for anonymous users
+    const roomHistorySection = document.getElementById('room-history-section');
+    if (roomHistorySection) {
+      roomHistorySection.classList.add('hidden');
     }
   }
 }
@@ -155,6 +164,28 @@ function initializeSocket() {
     updateConnectionStatus(false);
   });
 
+  // WebRTC connection events
+  socket.on('peer-connection-ready', (data) => {
+    console.log('Peer WebRTC ready:', data.userId);
+    // Peer is ready, we can start offering if we're the initiator
+    if (webrtc && webrtc.isInitiator) {
+      setTimeout(() => webrtc.createOffer(), 100); // Small delay to ensure both sides are ready
+    }
+  });
+
+  socket.on('peer-connected', (data) => {
+    console.log('Peer fully connected:', data.userId);
+    updateConnectionStatus(true);
+  });
+
+  // Handle WebRTC offer initiation for rejoined creators
+  socket.on('start-webrtc-offer', () => {
+    console.log('Starting WebRTC offer as creator');
+    if (webrtc && webrtc.isInitiator) {
+      setTimeout(() => webrtc.createOffer(), 100);
+    }
+  });
+
   // Room expiration event
   socket.on('room-expired', (data) => {
     console.log('Room expired:', data);
@@ -181,6 +212,33 @@ function initializeSocket() {
     setTimeout(() => {
       showScreen('home');
     }, 3000); // 3 seconds to read the message
+  });
+
+  // Handle room deletion
+  socket.on('room-deleted', (data) => {
+    console.log('Room deleted:', data);
+
+    showSuccess(data.message || 'Room has been deleted');
+
+    // Clean up room state and redirect to home
+    if (webrtc) {
+      webrtc.disconnect();
+      webrtc = null;
+    }
+
+    currentRoom = null;
+    selectedFiles = [];
+    sentFiles = [];
+    clearSelectedFiles();
+    clearSentFiles();
+    clearReceivedFiles();
+    hideTransferProgress();
+
+    // Refresh room history to remove deleted room
+    loadRoomHistory();
+
+    // Redirect to home
+    showScreen('home');
   });
 
   // WebRTC signaling
@@ -228,6 +286,15 @@ function setupEventListeners() {
 
   // Room screen
   document.getElementById('leave-room-btn').addEventListener('click', leaveRoom);
+  // Wire up header delete button to delete current room
+  const headerDeleteBtn = document.getElementById('delete-room-btn');
+  if (headerDeleteBtn) {
+    headerDeleteBtn.addEventListener('click', () => {
+      if (currentRoom) {
+        deleteRoom(currentRoom);
+      }
+    });
+  }
   // Tabs
   const tabSend = document.getElementById('tab-send');
   const tabReceive = document.getElementById('tab-receive');
@@ -603,19 +670,39 @@ async function showProfile() {
         profileAvatar.textContent = '👤';
       }
 
-      // Show recent rooms
+      // Show recent rooms (creator, participants, room id)
       const roomsList = document.getElementById('profile-rooms');
       roomsList.innerHTML = '';
 
       if (data.rooms && data.rooms.length > 0) {
-        data.rooms.slice(-5).reverse().forEach(room => {
+        // Most recent first
+        data.rooms.forEach(room => {
+          const names = (room.participants || []);
+          const previewNames = names.slice(0, 3);
+          const moreCount = Math.max(0, names.length - previewNames.length);
+          const participantsText = previewNames.join(', ') + (moreCount > 0 ? ` +${moreCount}` : (names.length === 0 ? 'None' : ''));
+
           const roomItem = document.createElement('div');
           roomItem.className = 'room-item';
           roomItem.innerHTML = `
             <div class="room-info">
-              <span class="room-id">${room.roomId}</span>
-              <span class="room-role">${room.role}</span>
-              <span class="room-date">${new Date(room.joinedAt).toLocaleDateString()}</span>
+              <div class="room-row">
+                <span class="room-id" title="Room ID">${room.roomId}</span>
+                <span class="room-role badge ${room.role === 'creator' ? 'creator' : 'participant'}">${room.role}</span>
+                <span class="room-date">${new Date(room.joinedAt).toLocaleString()}</span>
+              </div>
+              <div class="room-row small">
+                <span class="label">Creator:</span>
+                <span class="value">${room.creator && room.creator.username ? room.creator.username : 'Unknown'}</span>
+              </div>
+              <div class="room-row small">
+                <span class="label">Participants:</span>
+                <span class="value">${participantsText}</span>
+              </div>
+            </div>
+            <div class="room-actions">
+              <button class="btn secondary small" onclick="rejoinRoom('${room.roomId}')">Rejoin</button>
+              ${room.role === 'creator' ? `<button class="btn danger small" onclick="deleteRoom('${room.roomId}')">Delete</button>` : ''}
             </div>
           `;
           roomsList.appendChild(roomItem);
@@ -1050,6 +1137,11 @@ function leaveRoom() {
   socket.connect();
 
   showScreen('home');
+
+  // Load room history if user is logged in
+  if (currentUser) {
+    setTimeout(() => loadRoomHistory(), 100);
+  }
 }
 
 // File Handling
@@ -1691,23 +1783,36 @@ function updateTransferProgress(percentage, transferred, total, speed = 0, mode 
 }
 
 // Connection Status
-function updateConnectionStatus(isConnected) {
+function updateConnectionStatus(_isConnectedHint) {
   const statusElement = document.getElementById('connection-status');
   const statusText = statusElement.querySelector('.status-text');
 
-  if (isConnected) {
+  const pcState = (webrtc && webrtc.peerConnection) ? webrtc.peerConnection.connectionState : 'new';
+  const dcState = (webrtc && webrtc.dataChannel) ? webrtc.dataChannel.readyState : 'closed';
+
+  if (dcState === 'open') {
     statusElement.classList.add('connected');
     statusText.textContent = 'Connected - Ready to transfer files';
     setFileSelectionEnabled(true);
+    return;
+  }
+
+  // Data channel not open yet
+  statusElement.classList.remove('connected');
+  setFileSelectionEnabled(false);
+  if (pcState === 'connected') {
+    statusText.textContent = 'Peer connected — setting up data channel…';
+  } else if (pcState === 'connecting' || pcState === 'checking') {
+    statusText.textContent = 'Connecting to peer…';
+  } else if (pcState === 'disconnected' || pcState === 'failed') {
+    statusText.textContent = 'Disconnected — attempting to reconnect…';
   } else {
-    statusElement.classList.remove('connected');
     statusText.textContent = 'Waiting for connection...';
-    setFileSelectionEnabled(false);
   }
 }
 
 function isPeerConnected() {
-  // Connected when webrtc exists and dataChannel open
+  // Only allow transfers when the data channel is truly open
   return !!(webrtc && webrtc.dataChannel && webrtc.dataChannel.readyState === 'open');
 }
 
@@ -1815,3 +1920,169 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// Room History and Management Functions
+async function loadRoomHistory() {
+  if (!currentUser) {
+    document.getElementById('room-history-section').classList.add('hidden');
+    return;
+  }
+
+  try {
+    const response = await new Promise((resolve) => {
+      socket.emit('get-room-history', resolve);
+    });
+
+    if (response.success) {
+      displayRoomHistory(response.rooms);
+      document.getElementById('room-history-section').classList.remove('hidden');
+    } else {
+      console.error('Failed to load room history:', response.error);
+      document.getElementById('room-history-section').classList.add('hidden');
+    }
+  } catch (error) {
+    console.error('Error loading room history:', error);
+    document.getElementById('room-history-section').classList.add('hidden');
+  }
+}
+
+function displayRoomHistory(rooms) {
+  const historyList = document.getElementById('room-history-list');
+
+  if (!rooms || rooms.length === 0) {
+    historyList.innerHTML = '<p class="no-rooms">No recent rooms found.</p>';
+    return;
+  }
+
+  historyList.innerHTML = rooms.map(room => {
+    const expiresAt = new Date(room.expiresAt);
+    const now = new Date();
+    const timeLeft = expiresAt - now;
+    const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
+    const minutesLeft = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+
+    return `
+      <div class="room-history-item ${room.isActive ? 'active' : ''}">
+        <div class="room-info">
+          <div class="room-code">${room.roomId}</div>
+          <div class="room-details">
+            <span class="room-role">${room.role === 'creator' ? '👤 Creator' : '👥 Participant'}</span>
+            <span class="room-participants">${room.participants} participant(s)</span>
+            <span class="room-expires">Expires in ${hoursLeft}h ${minutesLeft}m</span>
+          </div>
+        </div>
+        <div class="room-actions">
+          ${room.isActive ?
+        '<span class="active-indicator">Currently in room</span>' :
+        `<button onclick="rejoinRoom('${room.roomId}')" class="btn secondary small">Rejoin</button>`
+      }
+          ${room.role === 'creator' ?
+        `<button onclick="deleteRoom('${room.roomId}')" class="btn danger small" title="Delete Room" style="margin-left: 8px;">🗑️</button>` :
+        ''
+      }
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function rejoinRoom(roomId) {
+  showLoading('Rejoining room...');
+
+  try {
+    // Prepare WebRTC before joining
+    webrtc = new WebRTCManager();
+    await webrtc.initializePeerConnection(socket, roomId);
+
+    const response = await new Promise((resolve) => {
+      socket.emit('rejoin-room', { roomId }, resolve);
+    });
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    // Set WebRTC role based on response
+    if (response.isCreator) {
+      webrtc.isInitiator = true;
+      webrtc.polite = false;
+      console.log('Rejoined as creator (initiator)');
+    } else {
+      webrtc.isInitiator = false;
+      webrtc.polite = true;
+      console.log('Rejoined as participant (polite)');
+    }
+
+    currentRoom = roomId;
+    document.getElementById('room-code-display').textContent = roomId;
+
+    // Show delete button if user is creator
+    const deleteBtn = document.getElementById('delete-room-btn');
+    if (response.isCreator) {
+      deleteBtn.classList.remove('hidden');
+    } else {
+      deleteBtn.classList.add('hidden');
+    }
+
+    console.log(`Rejoined room ${roomId}: ${response.participantCount} participants, firstRejoiner: ${response.isFirstRejoiner}`);
+
+    // If not the first rejoiner and we're the creator, start WebRTC offer
+    if (!response.isFirstRejoiner && response.isCreator) {
+      console.log('Creator rejoining with existing participants, will initiate WebRTC');
+      setTimeout(() => {
+        if (webrtc) {
+          webrtc.createOffer();
+        }
+      }, 1000); // Give time for other participants to be ready
+    }
+
+    // Process any offers/candidates received during rejoin
+    processPendingSignals();
+
+    showScreen('room');
+    updateConnectionStatus(false);
+    hideLoading();
+
+  } catch (error) {
+    showError('Failed to rejoin room: ' + error.message);
+    showScreen('home');
+    hideLoading();
+  }
+}
+
+async function deleteRoom(roomId) {
+  console.log('deleteRoom called with roomId:', roomId);
+
+  if (!confirm('Are you sure you want to delete this room? This action cannot be undone.')) {
+    console.log('Delete confirmation cancelled');
+    return;
+  }
+
+  console.log('Sending delete-room request...');
+  try {
+    const response = await new Promise((resolve) => {
+      socket.emit('delete-room', { roomId }, resolve);
+    });
+
+    console.log('Delete room response:', response);
+    if (response.success) {
+      showSuccess('Room deleted successfully');
+      loadRoomHistory(); // Refresh room history
+
+      // If we're currently in the deleted room, go back to home
+      if (currentRoom === roomId) {
+        leaveRoom();
+      }
+    } else {
+      throw new Error(response.error);
+    }
+  } catch (error) {
+    console.error('Delete room error:', error);
+    showError('Failed to delete room: ' + error.message);
+  }
+}
+
+// Expose functions used by inline onclick handlers in room history
+// Ensures availability even if bundlers or scopes change
+window.deleteRoom = deleteRoom;
+window.rejoinRoom = rejoinRoom;

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const { generateToken, requireAuth, optionalAuth } = require('../middleware/auth');
+const Room = require('../models/Room');
 const { upload, uploadToCloudinary, deleteFromCloudinary } = require('../config/cloudinary');
 
 // Register new user
@@ -124,10 +125,43 @@ router.post('/login', async (req, res) => {
 // Get current user profile
 router.get('/profile', requireAuth, async (req, res) => {
   try {
+    // Fetch recent rooms directly from Room collection
+    const rooms = await Room.getUserRoomHistory(req.user._id);
+
+    // Map to profile-friendly shape
+    const mapped = rooms.map((room) => {
+      const isCreator = room.creator && room.creator.toString() === req.user._id.toString();
+      // Find joinedAt from participantHistory for this user if present
+      const joined = (room.participantHistory || []).find(
+        (p) => p.user && p.user.toString() === req.user._id.toString()
+      );
+
+      // Collect participant usernames (active participants known to server)
+      const participantNames = (room.participants || [])
+        .map((p) => p.user && p.user.username)
+        .filter(Boolean);
+
+      return {
+        roomId: room.roomId,
+        role: isCreator ? 'creator' : 'participant',
+        joinedAt: joined?.joinedAt || room.createdAt,
+        expiresAt: room.expiresAt,
+        creator: room.creator && room.creator.username ? {
+          id: room.creator._id || room.creator,
+          username: room.creator.username
+        } : {
+          id: room.creator || null,
+          username: 'Unknown'
+        },
+        participants: participantNames,
+        participantsCount: participantNames.length
+      };
+    });
+
     res.json({
       success: true,
       user: req.user.getPublicProfile(),
-      rooms: req.user.rooms.slice(-10) // Last 10 rooms
+      rooms: mapped
     });
   } catch (error) {
     console.error('Profile error:', error);

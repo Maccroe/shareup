@@ -12,6 +12,7 @@ const { socketAuth } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const User = require('./models/User');
 const AnonymousLimit = require('./models/AnonymousLimit');
+const Room = require('./models/Room');
 
 const app = express();
 const server = http.createServer(app);
@@ -32,11 +33,38 @@ app.use(express.json());
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/shareup')
-  .then(async () => {
+// MongoDB Connection with retry logic
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/shareup', {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      family: 4
+    });
     console.log('Connected to MongoDB');
+    return true;
+  } catch (error) {
+    console.error('MongoDB connection error:', error);
+    return false;
+  }
+};
 
+// Handle MongoDB disconnection
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected. Attempting to reconnect...');
+});
+
+mongoose.connection.on('error', (error) => {
+  console.error('MongoDB connection error:', error);
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('MongoDB reconnected');
+});
+
+connectDB().then(async (connected) => {
+  if (connected) {
     // Clean up old anonymous limit entries on startup
     try {
       const yesterday = new Date();
@@ -50,11 +78,69 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/shareup')
     } catch (error) {
       console.error('Error cleaning up old limit entries:', error);
     }
-  })
-  .catch(err => console.error('MongoDB connection error:', err));
+
+    // Initial cleanup of expired rooms on startup
+    try {
+      await Room.cleanExpiredRooms();
+    } catch (error) {
+      console.error('Error cleaning up expired rooms on startup:', error);
+    }
+  } else {
+    console.error('Failed to connect to MongoDB. Some features may not work properly.');
+  }
+})
+  .catch(err => console.error('MongoDB connection setup error:', err));
 
 // Store active rooms
 const rooms = new Map();
+
+// Helper function to check MongoDB connection
+const isDBConnected = () => {
+  return mongoose.connection.readyState === 1;
+};
+
+// Helper function to safely perform database operations
+const safeDBOperation = async (operation, fallback = null) => {
+  if (!isDBConnected()) {
+    console.warn('Database not connected, skipping operation');
+    return fallback;
+  }
+
+  try {
+    return await operation();
+  } catch (error) {
+    console.error('Database operation error:', error);
+    return fallback;
+  }
+};
+
+// Periodic cleanup of expired rooms (backup to MongoDB TTL)
+setInterval(async () => {
+  try {
+    await Room.cleanExpiredRooms();
+
+    // Also clean expired rooms from memory
+    const now = new Date();
+    const expiredRooms = [];
+
+    rooms.forEach((room, roomId) => {
+      if (room.expiresAt && room.expiresAt < now) {
+        expiredRooms.push(roomId);
+      }
+    });
+
+    expiredRooms.forEach(roomId => {
+      rooms.delete(roomId);
+      console.log(`Cleaned expired room ${roomId} from memory`);
+    });
+
+    if (expiredRooms.length > 0) {
+      console.log(`Cleaned ${expiredRooms.length} expired rooms from memory during periodic cleanup`);
+    }
+  } catch (error) {
+    console.error('Error during periodic room cleanup:', error);
+  }
+}, 5 * 60 * 1000); // Run every 5 minutes
 
 const DAILY_ROOM_LIMIT = 5;
 
@@ -283,6 +369,18 @@ io.use(socketAuth); // Add optional authentication to sockets
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id, socket.user ? `(${socket.user.username})` : '(anonymous)');
 
+  // For debugging: if user is logged in, immediately check their room history
+  if (socket.user) {
+    setTimeout(async () => {
+      try {
+        const rooms = await Room.getUserRoomHistory(socket.user._id);
+        console.log(`DEBUG: User ${socket.user.username} has ${rooms.length} rooms in database`);
+      } catch (error) {
+        console.error('DEBUG: Error checking user room history:', error);
+      }
+    }, 1000);
+  }
+
   // Create a new room
   socket.on('create-room', async (callback) => {
     const isAnonymous = !socket.user;
@@ -301,59 +399,135 @@ io.on('connection', (socket) => {
     }
 
     const roomId = uuidv4().substring(0, 8).toUpperCase();
-    const roomData = {
-      id: roomId,
-      creator: socket.id,
-      creatorUser: socket.user ? socket.user.getPublicProfile() : null,
-      participants: [socket.id],
-      participantUsers: socket.user ? [socket.user.getPublicProfile()] : [],
-      createdAt: new Date(),
-      isAnonymous: isAnonymous,
-      expiresAt: isAnonymous ? new Date(Date.now() + 2 * 60 * 1000) : null // 2 minutes for anonymous
-    };
+    let roomData = null;
 
-    rooms.set(roomId, roomData);
-    socket.join(roomId);
-
-    // If user is logged in, add room to their history
-    if (socket.user) {
-      try {
-        await socket.user.addRoom(roomId, 'creator');
-      } catch (error) {
-        console.error('Error adding room to user history:', error);
+    try {
+      // Check database connection first
+      if (!isDBConnected()) {
+        throw new Error('Database connection not available');
       }
-    } else {
+
+      // Create room in MongoDB
+      const roomDoc = new Room({
+        roomId: roomId,
+        creator: socket.user ? socket.user._id : null,
+        isAnonymous: isAnonymous,
+        expiresAt: isAnonymous ?
+          new Date(Date.now() + 2 * 60 * 1000) : // 2 minutes for anonymous
+          new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours for logged-in users
+      });
+
+      await roomDoc.save();
+      console.log(`Room ${roomId} saved to database with creator: ${roomDoc.creator}`);
+
+      // Add creator as participant in database
+      if (socket.user) {
+        await roomDoc.addParticipant(socket.user._id, socket.id, 'creator');
+        console.log(`Creator ${socket.user.username} (ID: ${socket.user._id}) added to room ${roomId} in database`);
+      } else {
+        await roomDoc.addParticipant(null, socket.id, 'creator');
+        console.log(`Anonymous creator added to room ${roomId} in database`);
+      }
+
+      // Keep in-memory copy for quick access
+      roomData = {
+        id: roomId,
+        creator: socket.id,
+        creatorUser: socket.user ? socket.user.getPublicProfile() : null,
+        participants: [socket.id],
+        participantUsers: socket.user ? [socket.user.getPublicProfile()] : [],
+        createdAt: new Date(),
+        isAnonymous: isAnonymous,
+        expiresAt: roomDoc.expiresAt,
+        dbId: roomDoc._id
+      };
+
+      rooms.set(roomId, roomData);
+      socket.join(roomId);
+
       // Set timer for anonymous room deletion
-      setTimeout(() => {
-        const room = rooms.get(roomId);
-        if (room && room.isAnonymous) {
-          console.log(`Anonymous room ${roomId} expired after 2 minutes`);
-          // Notify participants about expiration
-          io.to(roomId).emit('room-expired', {
-            roomId,
-            message: 'Room has expired. Login to create rooms with unlimited time.'
-          });
-          // Delete room after notification
-          setTimeout(() => {
-            rooms.delete(roomId);
-            console.log(`Room ${roomId} deleted after expiration`);
-          }, 5000); // 5 second delay to show message
-        }
-      }, 2 * 60 * 1000); // 2 minutes
-    }
+      if (isAnonymous) {
+        setTimeout(async () => {
+          const room = rooms.get(roomId);
+          if (room && room.isAnonymous) {
+            console.log(`Anonymous room ${roomId} expired after 2 minutes`);
+            // Notify participants about expiration
+            io.to(roomId).emit('room-expired', {
+              roomId,
+              message: 'Room has expired. Login to create rooms with unlimited time.'
+            });
+            // Delete room from memory and database after notification
+            setTimeout(async () => {
+              rooms.delete(roomId);
+              try {
+                await Room.findOneAndDelete({ roomId });
+                console.log(`Room ${roomId} deleted from memory and database after expiration`);
+              } catch (error) {
+                console.error(`Error deleting expired room ${roomId} from database:`, error);
+              }
+            }, 5000); // 5 second delay to show message
+          }
+        }, 2 * 60 * 1000); // 2 minutes
+      }
 
-    // Increment room usage for anonymous users
-    if (isAnonymous) {
-      await incrementAnonymousRoomUsage(socket);
-    }
+      // Set 24-hour expiration timer for logged-in user rooms
+      if (!isAnonymous) {
+        setTimeout(async () => {
+          const room = rooms.get(roomId);
+          if (room && !room.isAnonymous) {
+            console.log(`Logged-in user room ${roomId} expired after 24 hours`);
+            // Notify participants about expiration
+            io.to(roomId).emit('room-expired', {
+              roomId,
+              message: 'Room has expired after 24 hours. Create a new room to continue.'
+            });
+            // Delete room from memory and database after notification
+            setTimeout(async () => {
+              rooms.delete(roomId);
+              try {
+                await Room.findOneAndDelete({ roomId });
+                console.log(`Room ${roomId} deleted from memory and database after 24-hour expiration`);
+              } catch (error) {
+                console.error(`Error deleting expired room ${roomId} from database:`, error);
+              }
+            }, 5000);
+          }
+        }, 24 * 60 * 60 * 1000); // 24 hours
+      }
 
-    console.log(`Room created: ${roomId} by ${socket.user ? socket.user.username : 'anonymous'} ${isAnonymous ? '(2min limit)' : '(unlimited)'}`);
-    callback({
-      roomId,
-      isAnonymous,
-      expiresAt: roomData.expiresAt
-    });
-  });  // Join an existing room
+      // Increment room usage for anonymous users
+      if (isAnonymous) {
+        await safeDBOperation(async () => {
+          await incrementAnonymousRoomUsage(socket);
+        });
+      }
+
+      console.log(`Room created: ${roomId} by ${socket.user ? socket.user.username : 'anonymous'} ${isAnonymous ? '(2min limit)' : '(24hr limit)'}`);
+
+      // Send success response
+      callback({
+        roomId,
+        isAnonymous,
+        expiresAt: roomData.expiresAt
+      });
+
+    } catch (error) {
+      console.error('Error creating room:', error);
+
+      // Handle specific MongoDB connection errors
+      if (error.name === 'MongoNetworkError' || error.code === 'ECONNRESET') {
+        return callback({
+          error: 'Database connection error. Please check your internet connection and try again.'
+        });
+      }
+
+      return callback({
+        error: 'Failed to create room. Please try again.'
+      });
+    }
+  });
+
+  // Join an existing room
   socket.on('join-room', async ({ roomId }, callback) => {
     const isAnonymous = !socket.user;
 
@@ -384,14 +558,31 @@ io.on('connection', (socket) => {
 
     room.participants.push(socket.id);
 
-    // Add user info if logged in
+    // Add user info if logged in and update database
     if (socket.user) {
       room.participantUsers.push(socket.user.getPublicProfile());
-      try {
-        await socket.user.addRoom(roomId, 'participant');
-      } catch (error) {
-        console.error('Error adding room to user history:', error);
-      }
+
+      // Update database with participant
+      await safeDBOperation(async () => {
+        const roomDoc = await Room.findOne({ roomId });
+        if (roomDoc) {
+          await roomDoc.addParticipant(socket.user._id, socket.id, 'participant');
+          console.log(`User ${socket.user.username} added as participant to room ${roomId} in database`);
+        } else {
+          console.error(`Room ${roomId} not found in database when adding participant`);
+        }
+      });
+    } else {
+      // Update room document for anonymous user
+      await safeDBOperation(async () => {
+        const roomDoc = await Room.findOne({ roomId });
+        if (roomDoc) {
+          await roomDoc.addParticipant(null, socket.id, 'participant');
+          console.log(`Anonymous user added as participant to room ${roomId} in database`);
+        } else {
+          console.error(`Room ${roomId} not found in database when adding anonymous participant`);
+        }
+      });
     }
 
     socket.join(roomId);
@@ -408,14 +599,238 @@ io.on('connection', (socket) => {
     }
 
     console.log(`User ${socket.user ? socket.user.username : socket.id} joined room ${roomId}`);
+
+    // Send detailed success response
     callback({
       success: true,
       room: {
-        ...room,
+        id: roomId,
         participants: room.participants,
-        participantUsers: room.participantUsers
-      }
+        participantUsers: room.participantUsers,
+        creator: room.creator,
+        creatorUser: room.creatorUser,
+        isAnonymous: room.isAnonymous,
+        expiresAt: room.expiresAt
+      },
+      isCreator: room.creator === socket.id,
+      isParticipant: true
     });
+  });
+
+  // Get user's room history (for rejoining rooms) - works directly from Room database
+  socket.on('get-room-history', async (callback) => {
+    if (!socket.user) {
+      return callback({ error: 'Must be logged in to get room history' });
+    }
+
+    try {
+      console.log(`Getting room history for user ${socket.user.username} (ID: ${socket.user._id})`);
+
+      // Get rooms directly from Room collection
+      const roomsFromDB = await Room.getUserRoomHistory(socket.user._id);
+
+      console.log(`Found ${roomsFromDB.length} rooms in database for user ${socket.user.username}`);
+      roomsFromDB.forEach(room => {
+        const historyCount = room.participantHistory ? room.participantHistory.length : 0;
+        console.log(`Room ${room.roomId}: Creator=${room.creator?._id}, Active Participants=${room.participants.length}, History=${historyCount}, Expires=${room.expiresAt}`);
+        if (room.participantHistory) {
+          room.participantHistory.forEach((p, idx) => {
+            console.log(`  History ${idx}: ${p.user} - Role: ${p.role}`);
+          });
+        }
+      });
+
+      const validRooms = roomsFromDB.map(room => {
+        const memoryRoom = rooms.get(room.roomId);
+
+        // Check if user is creator
+        const isCreator = room.creator?.toString() === socket.user._id.toString();
+
+        // Find user in participantHistory (for joinedAt date)
+        const userInHistory = room.participantHistory ?
+          room.participantHistory.find(p => p.user?.toString() === socket.user._id.toString()) : null;
+
+        return {
+          roomId: room.roomId,
+          role: isCreator ? 'creator' : 'participant',
+          joinedAt: userInHistory?.joinedAt || room.createdAt,
+          expiresAt: room.expiresAt,
+          participants: memoryRoom ? memoryRoom.participants.length : room.participants.length,
+          isActive: memoryRoom ? memoryRoom.participants.includes(socket.id) : false
+        };
+      });
+
+      console.log(`Returning ${validRooms.length} valid rooms for user ${socket.user.username}`);
+      callback({ success: true, rooms: validRooms });
+    } catch (error) {
+      console.error('Error getting room history:', error);
+      callback({ error: 'Failed to get room history' });
+    }
+  });
+
+  // Rejoin existing room
+  socket.on('rejoin-room', async ({ roomId }, callback) => {
+    if (!socket.user) {
+      return callback({ error: 'Must be logged in to rejoin rooms' });
+    }
+
+    try {
+      // First check if room exists in database
+      const roomDoc = await Room.findOne({
+        roomId,
+        $or: [
+          { creator: socket.user._id },
+          { 'participants.user': socket.user._id }
+        ],
+        expiresAt: { $gt: new Date() },
+        isActive: true
+      });
+
+      if (!roomDoc) {
+        return callback({ error: 'Room not found or has expired' });
+      }
+
+      // Check if room exists in memory, if not recreate it
+      let room = rooms.get(roomId);
+      if (!room) {
+        // Recreate room in memory from database
+        room = {
+          id: roomId,
+          creator: null, // Will be set when creator rejoins
+          creatorUser: null,
+          participants: [],
+          participantUsers: [],
+          createdAt: roomDoc.createdAt,
+          isAnonymous: roomDoc.isAnonymous,
+          expiresAt: roomDoc.expiresAt,
+          dbId: roomDoc._id
+        };
+
+        // Set creator info if creator exists in database
+        if (roomDoc.creator) {
+          room.creator = roomDoc.creator.toString();
+          if (roomDoc.creator.username) {
+            room.creatorUser = {
+              _id: roomDoc.creator._id,
+              username: roomDoc.creator.username,
+              avatar: roomDoc.creator.avatar
+            };
+          }
+        }
+
+        rooms.set(roomId, room);
+        console.log(`Room ${roomId} recreated in memory from database with ${roomDoc.participants.length} participants in DB`);
+      }      // Add user to room if not already present
+      if (!room.participants.includes(socket.id)) {
+        room.participants.push(socket.id);
+        room.participantUsers.push(socket.user.getPublicProfile());
+
+        // Determine user role
+        const isCreator = roomDoc.creator?.toString() === socket.user._id.toString();
+        const userRole = isCreator ? 'creator' : 'participant';
+
+        // Update database
+        await safeDBOperation(async () => {
+          await roomDoc.addParticipant(socket.user._id, socket.id, userRole);
+        });
+
+        console.log(`User ${socket.user.username} rejoined room ${roomId} as ${userRole}`);
+
+        // If user is the creator, update the memory room info
+        if (isCreator) {
+          room.creator = socket.id;
+          room.creatorUser = socket.user.getPublicProfile();
+        }
+      }
+
+      socket.join(roomId);
+
+      // Check if this is the first person rejoining an empty room
+      const isFirstRejoiner = room.participants.length === 1;
+
+      // Notify other participants about rejoin (if any)
+      if (!isFirstRejoiner) {
+        socket.to(roomId).emit('user-joined', {
+          userId: socket.id,
+          user: socket.user.getPublicProfile(),
+          rejoined: true
+        });
+
+        // If there are other participants, trigger WebRTC negotiation.
+        // Broadcast to room so the initiator (creator) will start the offer.
+        setTimeout(() => {
+          io.to(roomId).emit('start-webrtc-offer');
+        }, 500);
+      }
+
+      // Send enhanced success response
+      callback({
+        success: true,
+        room: {
+          id: roomId,
+          participants: room.participants,
+          participantUsers: room.participantUsers,
+          creator: room.creator,
+          creatorUser: room.creatorUser,
+          isAnonymous: room.isAnonymous,
+          expiresAt: room.expiresAt
+        },
+        isCreator: roomDoc.creator?.toString() === socket.user._id.toString(),
+        rejoined: true,
+        participantCount: room.participants.length,
+        isFirstRejoiner: room.participants.length === 1
+      });
+    } catch (error) {
+      console.error('Error rejoining room:', error);
+      callback({ error: 'Failed to rejoin room. Please try again.' });
+    }
+  });
+
+  // Delete room (only creator can delete)
+  socket.on('delete-room', async ({ roomId }, callback) => {
+    console.log(`Delete room request from ${socket.user ? socket.user.username : 'anonymous'} for room ${roomId}`);
+
+    if (!socket.user) {
+      console.log('Delete room rejected: User not logged in');
+      return callback({ error: 'Must be logged in to delete rooms' });
+    }
+
+    try {
+      // Get room from database to check creator
+      const roomDoc = await Room.findOne({ roomId });
+      if (!roomDoc) {
+        console.log(`Delete room rejected: Room ${roomId} not found in database`);
+        return callback({ error: 'Room not found' });
+      }
+
+      console.log(`Room ${roomId} found. Creator: ${roomDoc.creator}, Requesting user: ${socket.user._id}`);
+
+      // Check if user is the creator using the Room model method
+      if (!roomDoc.isCreator(socket.user._id)) {
+        console.log(`Delete room rejected: User ${socket.user.username} is not the creator of room ${roomId}`);
+        return callback({ error: 'Only the room creator can delete the room' });
+      }
+
+      console.log(`Delete room authorized for user ${socket.user.username} on room ${roomId}`);
+
+      // Notify all participants about room deletion
+      io.to(roomId).emit('room-deleted', {
+        roomId,
+        message: 'Room has been deleted by the creator.'
+      });
+
+      // Remove room from memory
+      rooms.delete(roomId);
+
+      // Remove room from database
+      await Room.findOneAndDelete({ roomId });
+      console.log(`Room ${roomId} deleted from memory and database by creator ${socket.user.username}`);
+
+      callback({ success: true });
+    } catch (error) {
+      console.error(`Error deleting room ${roomId}:`, error);
+      callback({ error: 'Failed to delete room' });
+    }
   });
 
   // WebRTC signaling
@@ -431,6 +846,23 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('ice-candidate', { candidate, from: socket.id });
   });
 
+  // Connection status events
+  socket.on('connection-ready', ({ roomId }) => {
+    console.log(`User ${socket.user ? socket.user.username : socket.id} reported WebRTC ready in room ${roomId}`);
+    socket.to(roomId).emit('peer-connection-ready', {
+      userId: socket.id,
+      user: socket.user ? socket.user.getPublicProfile() : null
+    });
+  });
+
+  socket.on('connection-established', ({ roomId }) => {
+    console.log(`Connection established in room ${roomId} by ${socket.user ? socket.user.username : socket.id}`);
+    socket.to(roomId).emit('peer-connected', {
+      userId: socket.id,
+      user: socket.user ? socket.user.getPublicProfile() : null
+    });
+  });
+
   // File transfer events
   socket.on('file-info', ({ roomId, fileInfo }) => {
     socket.to(roomId).emit('file-info', { fileInfo, from: socket.id });
@@ -441,37 +873,35 @@ io.on('connection', (socket) => {
   });
 
   // Handle disconnection
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     console.log('User disconnected:', socket.id, socket.user ? `(${socket.user.username})` : '(anonymous)');
 
-    // Clean up rooms
+    // Clean up rooms in memory and database
     for (const [roomId, room] of rooms.entries()) {
       const index = room.participants.indexOf(socket.id);
       if (index !== -1) {
         room.participants.splice(index, 1);
         socket.to(roomId).emit('user-left', { userId: socket.id });
 
+        // Update database room
+        await safeDBOperation(async () => {
+          const roomDoc = await Room.findOne({ roomId });
+          if (roomDoc) {
+            await roomDoc.removeParticipant(socket.id);
+            console.log(`Removed ${socket.user ? socket.user.username : 'anonymous'} from room ${roomId} in database`);
+          }
+        });
+
         // Delete room if empty
         if (room.participants.length === 0) {
           rooms.delete(roomId);
-          console.log(`Room ${roomId} deleted`);
+          // Don't delete from database immediately - let TTL handle it or creator delete it
+          console.log(`Room ${roomId} removed from memory (empty)`);
         }
       }
     }
   });
 });
-
-// Clean up old rooms (older than 24 hours)
-setInterval(() => {
-  const now = new Date();
-  for (const [roomId, room] of rooms.entries()) {
-    const timeDiff = now - room.createdAt;
-    if (timeDiff > 24 * 60 * 60 * 1000) { // 24 hours
-      rooms.delete(roomId);
-      console.log(`Room ${roomId} expired and deleted`);
-    }
-  }
-}, 60 * 60 * 1000); // Check every hour
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

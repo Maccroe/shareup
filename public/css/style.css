@@ -1538,3 +1538,181 @@ header {
 }
 
 /* Countdown color states handled via JavaScript */
+
+/* Room History Styles */
+.room-history-section {
+  margin: 30px 0;
+}
+
+.room-history-section h3 {
+  color: #2c3e50;
+  margin-bottom: 20px;
+  font-size: 1.3rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.room-history-section h3::before {
+  content: "🕒";
+  font-size: 1.2rem;
+}
+
+.room-history-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 12px;
+  border: 1px solid #e9ecef;
+  background: #f8f9fa;
+}
+
+.room-history-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e9ecef;
+  background: white;
+  transition: all 0.3s ease;
+}
+
+.room-history-item:last-child {
+  border-bottom: none;
+}
+
+.room-history-item:hover {
+  background: #f8f9fa;
+  transform: translateX(2px);
+}
+
+.room-history-item.active {
+  background: linear-gradient(135deg, #e8f5e8, #f0f8f0);
+  border-left: 4px solid #28a745;
+}
+
+.room-info {
+  flex: 1;
+}
+
+.room-code {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  font-family: "Courier New", monospace;
+  letter-spacing: 1px;
+}
+
+.room-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+
+.room-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+}
+
+.room-participants {
+  color: #495057;
+}
+
+.room-expires {
+  color: #e74c3c;
+  font-weight: 500;
+}
+
+.room-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.active-indicator {
+  color: #28a745;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 4px 8px;
+  background: rgba(40, 167, 69, 0.1);
+  border-radius: 6px;
+}
+
+.btn.small {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  min-height: auto;
+}
+
+.btn.danger {
+  background: #dc3545;
+  color: white;
+  border: 2px solid #dc3545;
+  padding: 8px 10px;
+  min-width: auto;
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn.danger:hover {
+  background: #c82333;
+  border-color: #c82333;
+  transform: translateY(-2px);
+}
+
+.no-rooms {
+  text-align: center;
+  color: #6c757d;
+  padding: 40px 20px;
+  font-style: italic;
+}
+
+/* Delete Room Button in Room Header */
+#delete-room-btn {
+  background: #dc3545;
+  color: white;
+  border: 2px solid #dc3545;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#delete-room-btn:hover {
+  background: #c82333;
+  border-color: #c82333;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+}
+
+/* Mobile Responsiveness for Room History */
+@media (max-width: 768px) {
+  .room-history-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .room-details {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .room-actions {
+    align-self: flex-end;
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
