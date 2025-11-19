@@ -1,8 +1,24 @@
-# Anonymous User File Transfer Limitations
+# Anonymous User Limitations
 
 ## Overview
 
-Anonymous users now have restrictions on file transfers to encourage registration while still providing a functional experience.
+Anonymous users now have multiple restrictions to encourage registration while still providing a functional experience. These limitations create a progressive upgrade path that incentivizes users to create accounts.
+
+## Daily Room Limits
+
+### Anonymous Users
+
+- **Maximum rooms per day**: 5 rooms (create + join combined)
+- **Tracking method**: Multi-factor fingerprinting to prevent easy bypass
+- **Reset time**: Daily at midnight (server time)
+- **Error message**: Shows remaining rooms and login benefits
+- **Bypass prevention**: Uses IP + User Agent + Accept-Language hash
+
+### Logged-in Users
+
+- **Unlimited rooms**: No daily restrictions
+- **Room history**: All rooms tracked in user profile
+- **No expiration**: Rooms don't expire automatically
 
 ## File Size Limits
 

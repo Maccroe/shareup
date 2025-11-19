@@ -773,6 +773,155 @@ function showRoomExpiredModal(message) {
   }
 }
 
+function showRoomLimitModal(message, remaining, resetTime) {
+  let modal = document.getElementById('room-limit-modal');
+  if (!modal) {
+    // Create modal if it doesn't exist
+    createRoomLimitModal();
+    // Get the modal again after creation
+    modal = document.getElementById('room-limit-modal');
+  }
+
+  const messageElement = document.getElementById('limit-message');
+  const remainingElement = document.getElementById('remaining-rooms');
+  const countdownElement = document.getElementById('reset-countdown');
+
+  if (messageElement) messageElement.textContent = message;
+  if (remainingElement) remainingElement.textContent = `Rooms remaining today: ${remaining}`;
+
+  // Start countdown timer if reset time is provided
+  if (resetTime) {
+    // Small delay to ensure DOM elements are ready
+    setTimeout(() => {
+      const countdownElement = document.getElementById('reset-countdown');
+      const countdownTimeElement = document.getElementById('countdown-time');
+      console.log('Starting countdown with resetTime:', resetTime);
+      console.log('countdownElement:', countdownElement);
+      console.log('countdownTimeElement:', countdownTimeElement);
+
+      if (countdownElement && countdownTimeElement) {
+        startResetCountdown(resetTime, countdownElement);
+      } else {
+        console.error('Countdown elements not found after modal creation');
+      }
+    }, 100);
+  } else {
+    console.log('No resetTime provided:', resetTime);
+  }
+
+  showModal('room-limit-modal');
+
+  // Auto-hide after 10 seconds (longer to see countdown)
+  setTimeout(() => {
+    stopResetCountdown();
+    hideModal('room-limit-modal');
+  }, 10000);
+}
+
+function createRoomLimitModal() {
+  const modalHTML = `
+    <div id="room-limit-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Daily Room Limit Reached</h3>
+          <span class="close" onclick="hideModal('room-limit-modal')">&times;</span>
+        </div>
+        <div class="modal-body">
+          <div class="limit-icon">⚠️</div>
+          <p id="limit-message" class="limit-message"></p>
+          <p id="remaining-rooms" class="remaining-count"></p>
+          <div id="reset-countdown" class="reset-countdown">
+            <h4>Limit resets in:</h4>
+            <div class="countdown-display">
+              <span id="countdown-time">--:--:--</span>
+            </div>
+          </div>
+          <div class="limit-benefits">
+            <h4>Login for unlimited access:</h4>
+            <ul>
+              <li>✅ Unlimited rooms per day</li>
+              <li>✅ Rooms never expire</li>
+              <li>✅ Unlimited file sizes (500MB)</li>
+              <li>✅ Full speed transfers</li>
+              <li>✅ Room history tracking</li>
+            </ul>
+          </div>
+          <div class="modal-actions">
+            <button onclick="showModal('login-modal'); hideModal('room-limit-modal');" class="btn-primary">
+              Login Now
+            </button>
+            <button onclick="showModal('register-modal'); hideModal('room-limit-modal');" class="btn-secondary">
+              Create Account
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+// Countdown timer for room limit reset
+let resetCountdownInterval = null;
+
+function startResetCountdown(resetTime, countdownElement) {
+  console.log('startResetCountdown called with:', resetTime);
+  stopResetCountdown(); // Clear any existing countdown
+
+  const updateCountdown = () => {
+    const now = new Date().getTime();
+    const resetTimeMs = new Date(resetTime.resetTime).getTime();
+    const timeLeft = resetTimeMs - now;
+
+    console.log('Countdown update - now:', now, 'resetTimeMs:', resetTimeMs, 'timeLeft:', timeLeft);
+
+    if (timeLeft <= 0) {
+      // Time expired
+      const countdownTimeElement = document.getElementById('countdown-time');
+      if (countdownTimeElement) {
+        countdownTimeElement.textContent = 'Resetting...';
+        countdownTimeElement.style.color = '#4caf50';
+      }
+      stopResetCountdown();
+      return;
+    }
+
+    // Calculate hours, minutes, seconds
+    const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+    const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
+
+    // Update display
+    const countdownTimeElement = document.getElementById('countdown-time');
+    if (countdownTimeElement) {
+      countdownTimeElement.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+      // Change color based on time remaining
+      if (timeLeft < 60000) { // Less than 1 minute
+        countdownTimeElement.style.color = '#ff4444';
+      } else if (timeLeft < 300000) { // Less than 5 minutes
+        countdownTimeElement.style.color = '#ff9800';
+      } else {
+        countdownTimeElement.style.color = '#4285f4';
+      }
+    }
+  };
+
+  // Update immediately
+  updateCountdown();
+
+  // Update every second
+  resetCountdownInterval = setInterval(updateCountdown, 1000);
+}
+
+function stopResetCountdown() {
+  if (resetCountdownInterval) {
+    clearInterval(resetCountdownInterval);
+    resetCountdownInterval = null;
+  }
+}
+
 // Screen Management
 function showScreen(screenName) {
   // Hide all screens
@@ -799,6 +948,12 @@ async function createRoom() {
     });
 
     if (response.error) {
+      if (response.limitReached) {
+        hideLoading();
+        showScreen('home');
+        showRoomLimitModal(response.error, response.remaining || 0, response.resetTime);
+        return;
+      }
       throw new Error(response.error);
     }
 
@@ -850,6 +1005,12 @@ async function joinRoom() {
     });
 
     if (response.error) {
+      if (response.limitReached) {
+        hideLoading();
+        showScreen('join');
+        showRoomLimitModal(response.error, response.remaining || 0, response.resetTime);
+        return;
+      }
       throw new Error(response.error);
     }
 
@@ -1589,6 +1750,15 @@ function processPendingSignals() {
 function showLoading(message) {
   document.getElementById('loading-text').textContent = message;
   showScreen('loading');
+}
+
+function hideLoading() {
+  // Loading screen will be hidden when another screen is shown
+  // This function exists for clarity and future extensibility
+}
+
+function hideLoading() {
+  // Loading screen will be hidden when another screen is shown
 }
 
 function showError(message, isError = true) {

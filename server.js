@@ -39,6 +39,108 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/shareup')
 // Store active rooms
 const rooms = new Map();
 
+// Anonymous user room limit tracking (resets daily)
+const anonymousRoomLimits = new Map(); // Key: fingerprint, Value: { count, date, ips: Set }
+const DAILY_ROOM_LIMIT = 5;
+
+// Reset daily limits at midnight
+setInterval(() => {
+  const today = new Date().toDateString();
+  for (const [fingerprint, data] of anonymousRoomLimits.entries()) {
+    if (data.date !== today) {
+      anonymousRoomLimits.delete(fingerprint);
+    }
+  }
+  console.log('Daily room limits reset');
+}, 60 * 60 * 1000); // Check every hour
+
+// Generate user fingerprint for anonymous limit tracking
+function generateUserFingerprint(socket) {
+  const ip = socket.handshake.address || socket.conn.remoteAddress || 'unknown';
+  const userAgent = socket.handshake.headers['user-agent'] || 'unknown';
+  const acceptLanguage = socket.handshake.headers['accept-language'] || 'unknown';
+
+  // Create fingerprint from multiple factors
+  const crypto = require('crypto');
+  const fingerprint = crypto.createHash('sha256')
+    .update(ip + userAgent + acceptLanguage)
+    .digest('hex').substring(0, 16);
+
+  return { fingerprint, ip };
+}
+
+// Get time until daily limit reset (midnight)
+function getTimeUntilReset() {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+  const msUntilReset = tomorrow.getTime() - now.getTime();
+
+  return {
+    milliseconds: msUntilReset,
+    resetTime: tomorrow.toISOString(),
+    hours: Math.floor(msUntilReset / (1000 * 60 * 60)),
+    minutes: Math.floor((msUntilReset % (1000 * 60 * 60)) / (1000 * 60)),
+    seconds: Math.floor((msUntilReset % (1000 * 60)) / 1000)
+  };
+}
+
+// Check if anonymous user can create/join room
+function checkAnonymousRoomLimit(socket) {
+  const { fingerprint, ip } = generateUserFingerprint(socket);
+  const today = new Date().toDateString();
+
+  if (!anonymousRoomLimits.has(fingerprint)) {
+    anonymousRoomLimits.set(fingerprint, {
+      count: 0,
+      date: today,
+      ips: new Set([ip])
+    });
+  }
+
+  const userData = anonymousRoomLimits.get(fingerprint);
+
+  // Reset if it's a new day
+  if (userData.date !== today) {
+    userData.count = 0;
+    userData.date = today;
+    userData.ips.clear();
+    userData.ips.add(ip);
+  } else {
+    // Add current IP to set
+    userData.ips.add(ip);
+  }
+
+  // Check limit
+  if (userData.count >= DAILY_ROOM_LIMIT) {
+    const resetInfo = getTimeUntilReset();
+    return {
+      allowed: false,
+      remaining: 0,
+      resetTime: resetInfo,
+      message: `Daily limit reached. Anonymous users can only create/join ${DAILY_ROOM_LIMIT} rooms per day. Login for unlimited access.`
+    };
+  }
+
+  return {
+    allowed: true,
+    remaining: DAILY_ROOM_LIMIT - userData.count,
+    resetTime: getTimeUntilReset(),
+    message: null
+  };
+}
+
+// Increment room usage for anonymous user
+function incrementAnonymousRoomUsage(socket) {
+  const { fingerprint } = generateUserFingerprint(socket);
+  const userData = anonymousRoomLimits.get(fingerprint);
+  if (userData) {
+    userData.count++;
+    console.log(`Anonymous user ${fingerprint} used ${userData.count}/${DAILY_ROOM_LIMIT} daily rooms`);
+  }
+}
+
 // Serve main page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -52,8 +154,22 @@ io.on('connection', (socket) => {
 
   // Create a new room
   socket.on('create-room', async (callback) => {
-    const roomId = uuidv4().substring(0, 8).toUpperCase();
     const isAnonymous = !socket.user;
+
+    // Check daily room limit for anonymous users
+    if (isAnonymous) {
+      const limitCheck = checkAnonymousRoomLimit(socket);
+      if (!limitCheck.allowed) {
+        return callback({
+          error: limitCheck.message,
+          limitReached: true,
+          remaining: limitCheck.remaining,
+          resetTime: limitCheck.resetTime
+        });
+      }
+    }
+
+    const roomId = uuidv4().substring(0, 8).toUpperCase();
     const roomData = {
       id: roomId,
       creator: socket.id,
@@ -95,6 +211,11 @@ io.on('connection', (socket) => {
       }, 2 * 60 * 1000); // 2 minutes
     }
 
+    // Increment room usage for anonymous users
+    if (isAnonymous) {
+      incrementAnonymousRoomUsage(socket);
+    }
+
     console.log(`Room created: ${roomId} by ${socket.user ? socket.user.username : 'anonymous'} ${isAnonymous ? '(2min limit)' : '(unlimited)'}`);
     callback({
       roomId,
@@ -103,6 +224,21 @@ io.on('connection', (socket) => {
     });
   });  // Join an existing room
   socket.on('join-room', async ({ roomId }, callback) => {
+    const isAnonymous = !socket.user;
+
+    // Check daily room limit for anonymous users
+    if (isAnonymous) {
+      const limitCheck = checkAnonymousRoomLimit(socket);
+      if (!limitCheck.allowed) {
+        return callback({
+          error: limitCheck.message,
+          limitReached: true,
+          remaining: limitCheck.remaining,
+          resetTime: limitCheck.resetTime
+        });
+      }
+    }
+
     const room = rooms.get(roomId);
 
     if (!room) {
@@ -134,6 +270,11 @@ io.on('connection', (socket) => {
       userId: socket.id,
       user: socket.user ? socket.user.getPublicProfile() : null
     });
+
+    // Increment room usage for anonymous users
+    if (isAnonymous) {
+      incrementAnonymousRoomUsage(socket);
+    }
 
     console.log(`User ${socket.user ? socket.user.username : socket.id} joined room ${roomId}`);
     callback({
