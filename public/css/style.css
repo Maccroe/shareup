@@ -51,6 +51,22 @@ header {
   margin: 0;
 }
 
+.comparison-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: white;
+  text-decoration: none;
+  font-size: 0.9rem;
+  opacity: 0.9;
+  transition: opacity 0.3s ease;
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.6);
+}
+
+.comparison-link:hover {
+  opacity: 1;
+  border-bottom: 1px solid white;
+}
+
 .header-right {
   display: flex;
   align-items: center;
@@ -1368,11 +1384,11 @@ header {
 }
 
 .speed-indicator.throttled {
-  color: #ff9800;
+  color: #d32f2f;
 }
 
 .speed-indicator.throttled::after {
-  content: " (limited)";
+  content: " (very limited)";
 }
 
 /* Room Limit Modal */

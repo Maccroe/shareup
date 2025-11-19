@@ -272,6 +272,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Serve comparison page
+app.get('/comparison', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'comparison.html'));
+});
+
 // Socket.io connection handling
 io.use(socketAuth); // Add optional authentication to sockets
 

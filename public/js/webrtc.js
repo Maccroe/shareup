@@ -292,7 +292,10 @@ class WebRTCManager {
     // Send file in chunks with speed throttling for anonymous users
     const chunkSize = 16384; // 16KB chunks
     const isAnonymous = !window.currentUser; // Check if user is anonymous
-    const throttleDelay = isAnonymous ? 150 : 0; // 150ms delay for anonymous users (approx 0.3x speed)
+
+    // Calculate throttle delay for 0.03 MB/s (30 KB/s) for anonymous users
+    // With 16KB chunks: 16384 bytes / 30720 bytes/s = ~0.53 seconds delay
+    const throttleDelay = isAnonymous ? 533 : 0; // 533ms delay for anonymous users (0.03 MB/s)
 
     let offset = 0;
     const startTime = Date.now();

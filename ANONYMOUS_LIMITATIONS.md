@@ -37,9 +37,9 @@ Anonymous users now have multiple restrictions to encourage registration while s
 
 ### Anonymous Users
 
-- **Speed throttling**: Approximately 0.3x normal speed (70% slower)
-- **Implementation**: 150ms delay between 16KB chunks
-- **Visual indicator**: Shows "(limited speed)" in transfer progress
+- **Speed throttling**: Very limited at 0.03 MB/s (30 KB/s)
+- **Implementation**: 533ms delay between 16KB chunks
+- **Visual indicator**: Shows "(very limited speed)" in transfer progress
 - **Applies to**: Outgoing transfers only (sending files)
 
 ### Logged-in Users

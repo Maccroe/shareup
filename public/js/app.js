@@ -1680,7 +1680,7 @@ function updateTransferProgress(percentage, transferred, total, speed = 0, mode 
     let speedText = formatTransferSpeed(speed);
     // Add throttling indicator for anonymous users
     if (!currentUser && mode !== 'receive') {
-      speedText += ' <span class="speed-indicator throttled">(limited speed)</span>';
+      speedText += ' <span class="speed-indicator throttled">(very limited speed)</span>';
       speedEl.innerHTML = speedText;
     } else {
       speedEl.textContent = speedText;
