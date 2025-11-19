@@ -289,8 +289,11 @@ class WebRTCManager {
     try { if (typeof outgoingFileMarkSending === 'function') outgoingFileMarkSending(outId); } catch (_) { }
     this.startedIds.add(outId);
 
-    // Send file in chunks
+    // Send file in chunks with speed throttling for anonymous users
     const chunkSize = 16384; // 16KB chunks
+    const isAnonymous = !window.currentUser; // Check if user is anonymous
+    const throttleDelay = isAnonymous ? 150 : 0; // 150ms delay for anonymous users (approx 0.3x speed)
+
     let offset = 0;
     const startTime = Date.now();
 

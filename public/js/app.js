@@ -56,6 +56,7 @@ async function checkAuthStatus() {
 function updateUserUI(isLoggedIn) {
   const userMenu = document.getElementById('user-menu');
   const authButtons = document.getElementById('auth-buttons');
+  const fileLimitInfo = document.getElementById('file-limit-info');
 
   if (isLoggedIn && currentUser) {
     userMenu.classList.remove('hidden');
@@ -70,9 +71,21 @@ function updateUserUI(isLoggedIn) {
       userAvatar.style.backgroundImage = '';
       userAvatar.textContent = '👤';
     }
+
+    // Update file limit info for logged-in users
+    if (fileLimitInfo) {
+      fileLimitInfo.textContent = 'Logged in: Unlimited file sizes • Full speed transfers';
+      fileLimitInfo.classList.add('logged-in');
+    }
   } else {
     userMenu.classList.add('hidden');
     authButtons.classList.remove('hidden');
+
+    // Update file limit info for anonymous users
+    if (fileLimitInfo) {
+      fileLimitInfo.textContent = 'Anonymous users: 30MB limit per file • Login for unlimited sizes';
+      fileLimitInfo.classList.remove('logged-in');
+    }
   }
 }
 
@@ -918,13 +931,20 @@ function addSelectedFiles(files) {
     showError('Cannot select files until connected.');
     return;
   }
-  // Validate files
-  const maxFileSize = 500 * 1024 * 1024; // 500MB limit
+
+  // Different limits for anonymous vs logged-in users
+  const maxFileSize = currentUser ? (500 * 1024 * 1024) : (30 * 1024 * 1024); // 500MB for logged-in, 30MB for anonymous
+  const maxFileSizeText = currentUser ? '500MB' : '30MB';
   const validFiles = [];
 
   for (const file of files) {
     if (file.size > maxFileSize) {
-      showError(`File "${file.name}" is too large. Maximum size is 500MB.`);
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      if (!currentUser) {
+        showError(`File "${file.name}" (${fileSizeMB}MB) is too large. Anonymous users are limited to ${maxFileSizeText}. Login for unlimited file sizes.`);
+      } else {
+        showError(`File "${file.name}" is too large. Maximum size is ${maxFileSizeText}.`);
+      }
       continue;
     }
     validFiles.push(file);
@@ -1494,7 +1514,19 @@ function updateTransferProgress(percentage, transferred, total, speed = 0, mode 
   if (!fill || !text || !speedEl) return;
   fill.style.width = Math.min(percentage, 100) + '%';
   text.textContent = Math.round(percentage) + '%';
-  speedEl.textContent = speed > 0 ? formatTransferSpeed(speed) : '';
+
+  if (speed > 0) {
+    let speedText = formatTransferSpeed(speed);
+    // Add throttling indicator for anonymous users
+    if (!currentUser && mode !== 'receive') {
+      speedText += ' <span class="speed-indicator throttled">(limited speed)</span>';
+      speedEl.innerHTML = speedText;
+    } else {
+      speedEl.textContent = speedText;
+    }
+  } else {
+    speedEl.textContent = '';
+  }
 }
 
 // Connection Status
