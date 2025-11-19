@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const { generateToken, requireAuth, optionalAuth } = require('../middleware/auth');
+const { upload, uploadToCloudinary, deleteFromCloudinary } = require('../config/cloudinary');
 
 // Register new user
 router.post('/register', async (req, res) => {
@@ -235,6 +236,54 @@ router.post('/logout', optionalAuth, async (req, res) => {
     console.error('Logout error:', error);
     res.status(500).json({
       error: 'Internal server error during logout'
+    });
+  }
+});
+
+// Upload avatar image
+router.post('/avatar', requireAuth, upload.single('avatar'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No image file provided'
+      });
+    }
+
+    // Delete old avatar from Cloudinary if it exists
+    if (req.user.avatar && req.user.avatarPublicId) {
+      try {
+        await deleteFromCloudinary(req.user.avatarPublicId);
+      } catch (deleteError) {
+        console.warn('Could not delete old avatar:', deleteError);
+      }
+    }
+
+    // Upload new avatar to Cloudinary
+    const result = await uploadToCloudinary(req.file.buffer, {
+      public_id: `avatar_${req.user._id}_${Date.now()}`
+    });
+
+    // Update user with new avatar URL and public_id
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        avatar: result.secure_url,
+        avatarPublicId: result.public_id
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Avatar updated successfully',
+      avatar: result.secure_url,
+      user: updatedUser.getPublicProfile()
+    });
+
+  } catch (error) {
+    console.error('Avatar upload error:', error);
+    res.status(500).json({
+      error: 'Failed to upload avatar. Please try again.'
     });
   }
 });

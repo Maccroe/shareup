@@ -27,6 +27,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  avatarPublicId: {
+    type: String,
+    default: null
+  },
   rooms: [{
     roomId: String,
     role: {

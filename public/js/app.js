@@ -58,7 +58,12 @@ function updateUserUI(isLoggedIn) {
 
     document.getElementById('user-name').textContent = currentUser.username;
     if (currentUser.avatar) {
-      document.getElementById('user-avatar').textContent = currentUser.avatar;
+      updateAvatarDisplay(currentUser.avatar);
+    } else {
+      // Reset to default avatar
+      const userAvatar = document.getElementById('user-avatar');
+      userAvatar.style.backgroundImage = '';
+      userAvatar.textContent = '👤';
     }
   } else {
     userMenu.classList.add('hidden');
@@ -270,6 +275,12 @@ function setupAuthEventListeners() {
   document.getElementById('user-profile-btn').addEventListener('click', showProfile);
   document.getElementById('user-logout-btn').addEventListener('click', logout);
 
+  // Avatar upload
+  document.getElementById('change-avatar-btn').addEventListener('click', () => {
+    document.getElementById('avatar-input').click();
+  });
+  document.getElementById('avatar-input').addEventListener('change', handleAvatarUpload);
+
   // User avatar click to open dropdown
   const userMenu = document.getElementById('user-menu');
   userMenu.addEventListener('click', () => {
@@ -403,6 +414,94 @@ async function handleRegister(e) {
   }
 }
 
+// Avatar upload handler
+async function handleAvatarUpload(e) {
+  const file = e.target.files[0];
+  if (!file || !authToken) return;
+
+  // Validate file type
+  if (!file.type.startsWith('image/')) {
+    showError('Please select an image file');
+    return;
+  }
+
+  // Validate file size (5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    showError('Image file must be less than 5MB');
+    return;
+  }
+
+  try {
+    const progressContainer = document.getElementById('avatar-upload-progress');
+    const progressFill = document.getElementById('avatar-progress-fill');
+    const progressText = document.getElementById('avatar-progress-text');
+
+    progressContainer.classList.remove('hidden');
+    progressText.textContent = 'Uploading...';
+    progressFill.style.width = '0%';
+
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    const response = await fetch('/api/auth/avatar', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      // Update current user data
+      currentUser.avatar = data.avatar;
+
+      // Update UI elements
+      updateAvatarDisplay(data.avatar);
+
+      progressText.textContent = 'Upload complete!';
+      progressFill.style.width = '100%';
+
+      setTimeout(() => {
+        progressContainer.classList.add('hidden');
+      }, 2000);
+
+      showError('Avatar updated successfully!', false);
+    } else {
+      progressContainer.classList.add('hidden');
+      showError(data.error || 'Failed to upload avatar');
+    }
+  } catch (error) {
+    console.error('Avatar upload error:', error);
+    document.getElementById('avatar-upload-progress').classList.add('hidden');
+    showError('Failed to upload avatar. Please try again.');
+  }
+
+  // Clear the input
+  e.target.value = '';
+}
+
+function updateAvatarDisplay(avatarUrl) {
+  // Update profile modal avatar
+  const profileAvatar = document.getElementById('profile-avatar');
+  if (avatarUrl) {
+    profileAvatar.style.backgroundImage = `url(${avatarUrl})`;
+    profileAvatar.style.backgroundSize = 'cover';
+    profileAvatar.style.backgroundPosition = 'center';
+    profileAvatar.textContent = '';
+  }
+
+  // Update header user avatar
+  const userAvatar = document.getElementById('user-avatar');
+  if (avatarUrl && userAvatar) {
+    userAvatar.style.backgroundImage = `url(${avatarUrl})`;
+    userAvatar.style.backgroundSize = 'cover';
+    userAvatar.style.backgroundPosition = 'center';
+    userAvatar.textContent = '';
+  }
+}
+
 async function showProfile() {
   if (!currentUser || !authToken) return;
 
@@ -423,7 +522,12 @@ async function showProfile() {
       document.getElementById('profile-last-login').textContent = new Date(data.user.lastLogin).toLocaleDateString();
 
       if (data.user.avatar) {
-        document.getElementById('profile-avatar').textContent = data.user.avatar;
+        updateAvatarDisplay(data.user.avatar);
+      } else {
+        // Reset to default if no avatar
+        const profileAvatar = document.getElementById('profile-avatar');
+        profileAvatar.style.backgroundImage = '';
+        profileAvatar.textContent = '👤';
       }
 
       // Show recent rooms
