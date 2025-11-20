@@ -82,7 +82,47 @@ app.get('/api/admin/status', (req, res) => {
   });
 });
 
-// Admin endpoint to view blocked/rate-limited devices and IPs
+// Remove blocked device endpoint
+app.delete('/api/admin/blocked/:fingerprint', requireAdminAuth, async (req, res) => {
+  try {
+    const { fingerprint } = req.params;
+
+    if (!fingerprint) {
+      return res.status(400).json({
+        success: false,
+        error: 'Fingerprint is required'
+      });
+    }
+
+    const deletedDevice = await AnonymousLimit.findOneAndDelete({ fingerprint });
+
+    if (deletedDevice) {
+      console.log(`🔓 Admin removed rate limit for device: ${fingerprint} (${deletedDevice.metadata?.os}/${deletedDevice.metadata?.browser})`);
+      res.json({
+        success: true,
+        message: 'Device unblocked successfully',
+        device: {
+          fingerprint: deletedDevice.fingerprint,
+          count: deletedDevice.count,
+          ips: deletedDevice.ips,
+          metadata: deletedDevice.metadata
+        }
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        error: 'Device not found or already unblocked'
+      });
+    }
+  } catch (error) {
+    console.error('Error removing blocked device:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to remove blocked device',
+      message: error.message
+    });
+  }
+});// Admin endpoint to view blocked/rate-limited devices and IPs
 app.get('/api/admin/blocked', requireAdminAuth, async (req, res) => {
   try {
     const today = new Date().toDateString(); // Use same format as database
@@ -269,9 +309,9 @@ function generateUserFingerprint(socket) {
   // Create multiple fingerprint layers
   const crypto = require('crypto');
 
-  // Primary fingerprint (main identifier)
+  // Primary fingerprint - now IP + OS based (consistent across browsers on same machine)
   const primaryFingerprint = crypto.createHash('sha256')
-    .update(userAgent + acceptLanguage + acceptEncoding + os + browser)
+    .update(ip + os + acceptLanguage)
     .digest('hex').substring(0, 16);
 
   // Secondary fingerprint (network-based)
@@ -331,9 +371,14 @@ async function checkAnonymousRoomLimit(socket) {
       }),
       AnonymousLimit.find({
         date: today,
-        'metadata.device': fingerprints.device,
-        'metadata.os': fingerprints.os,
-        'metadata.browser': fingerprints.browser
+        $or: [
+          { 'metadata.device': fingerprints.device },
+          // Same OS and IP (different browser on same machine)
+          {
+            'metadata.os': fingerprints.os,
+            'ips': fingerprints.ip
+          }
+        ]
       })
     ]);
 
@@ -364,6 +409,26 @@ async function checkAnonymousRoomLimit(socket) {
 
     // Create or update primary fingerprint data
     let limitData = primaryData;
+
+    // If no primary data exists, check if there's an existing record for this IP+OS combination
+    if (!limitData && relatedFingerprints.size > 0) {
+      // Find the most recent record for this user (same IP+OS)
+      const existingRecord = networkMatches.find(match =>
+        match.ips.includes(fingerprints.ip) &&
+        match.metadata?.os === fingerprints.os
+      ) || deviceMatches.find(match =>
+        match.ips.includes(fingerprints.ip) &&
+        match.metadata?.os === fingerprints.os
+      );
+
+      if (existingRecord) {
+        // Update the existing record to use the new fingerprint
+        console.log(`🔄 Browser switch detected: Updating existing record for ${fingerprints.ip} (${fingerprints.os}) from ${existingRecord.metadata?.browser} to ${fingerprints.browser}`);
+        limitData = existingRecord;
+        limitData.fingerprint = fingerprints.primary; // Update to new browser fingerprint
+      }
+    }
+
     if (!limitData) {
       limitData = new AnonymousLimit({
         fingerprint: fingerprints.primary,
@@ -377,7 +442,8 @@ async function checkAnonymousRoomLimit(socket) {
           browser: fingerprints.browser,
           language: fingerprints.language,
           userAgent: fingerprints.userAgent,
-          relatedFingerprints: Array.from(relatedFingerprints)
+          relatedFingerprints: Array.from(relatedFingerprints),
+          browserHistory: [fingerprints.browser] // Track browser switches
         }
       });
     } else {
@@ -394,6 +460,13 @@ async function checkAnonymousRoomLimit(socket) {
         }
       }
 
+      // Track browser history for the same user
+      const browserHistory = limitData.metadata?.browserHistory || [limitData.metadata?.browser];
+      if (!browserHistory.includes(fingerprints.browser)) {
+        browserHistory.push(fingerprints.browser);
+        console.log(`🔄 Browser switch detected for user: ${limitData.fingerprint} - Now using ${fingerprints.browser} (History: ${browserHistory.join(', ')})`);
+      }
+
       // Update metadata with latest info
       limitData.metadata = {
         ...limitData.metadata,
@@ -403,7 +476,8 @@ async function checkAnonymousRoomLimit(socket) {
         browser: fingerprints.browser,
         language: fingerprints.language,
         userAgent: fingerprints.userAgent,
-        relatedFingerprints: Array.from(relatedFingerprints)
+        relatedFingerprints: Array.from(relatedFingerprints),
+        browserHistory: browserHistory
       };
     }
 
@@ -467,6 +541,9 @@ async function incrementAnonymousRoomUsage(socket) {
 
       if (remaining <= 1) {
         console.log(`⚠️  APPROACHING LIMIT: ${logMessage} - ${remaining} rooms remaining`);
+        if (limitData.metadata?.browserHistory && limitData.metadata.browserHistory.length > 1) {
+          console.log(`   Browser History: ${limitData.metadata.browserHistory.join(' → ')}`);
+        }
       } else {
         console.log(logMessage);
       }

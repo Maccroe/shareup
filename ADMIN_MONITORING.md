@@ -19,6 +19,7 @@ ShareUp now includes comprehensive monitoring for anonymous user rate limiting. 
 - User-friendly interface showing blocked devices
 - Auto-refresh every 30 seconds
 - Mobile-responsive design
+- **Device Management**: Unblock individual devices with one-click removal
 
 ### 🚨 **Enhanced Logging**
 
@@ -183,3 +184,31 @@ This removes all test device records.
 ### Database Cleanup
 
 The system automatically cleans expired AnonymousLimit records using MongoDB TTL indexes. Records older than 24 hours are automatically removed.
+
+## Device Management
+
+### 🔓 **Unblocking Devices**
+
+Admins can remove rate limits from individual devices directly from the dashboard:
+
+**Dashboard Method:**
+
+1. View blocked devices in the admin dashboard
+2. Click the "🔓 Unblock" button next to any device
+3. Confirm the action in the dialog
+4. Device is immediately unblocked and can create rooms again
+
+**API Method:**
+
+- **DELETE** `/api/admin/blocked/:fingerprint`
+- Requires admin authentication
+- Returns success confirmation with device details
+
+**Use Cases for Unblocking:**
+
+- False positives from shared networks
+- Legitimate users incorrectly rate-limited
+- Testing and development purposes
+- Customer support requests
+
+**Security Note:** All unblock actions are logged to the console for audit purposes.

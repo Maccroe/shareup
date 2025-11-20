@@ -190,6 +190,34 @@
         margin-left: auto;
       }
 
+      .device-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .remove-btn {
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 15px;
+        font-size: 0.85em;
+        cursor: pointer;
+        transition: all 0.3s;
+        font-weight: 500;
+      }
+
+      .remove-btn:hover {
+        background: #218838;
+        transform: translateY(-1px);
+      }
+
+      .remove-btn:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+        transform: none;
+      }
       .device-info {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -471,9 +499,16 @@
                 <div class="device-card">
                     <div class="device-header">
                         <div class="fingerprint">${device.fingerprint}</div>
-                        <div class="usage-badge">${device.count}/${
+                        <div class="device-actions">
+                            <div class="usage-badge">${device.count}/${
               device.limit
             } rooms used</div>
+                            <button class="remove-btn" onclick="removeBlockedDevice('${
+                              device.fingerprint
+                            }')" title="Unblock this device">
+                                🔓 Unblock
+                            </button>
+                        </div>
                     </div>
                     
                     <div class="device-info">
@@ -492,7 +527,16 @@
                             <div class="info-label">Device Info</div>
                             <div class="info-value">${device.metadata.os} / ${
               device.metadata.browser
-            }</div>
+            }
+                                ${
+                                  device.metadata.browserHistory &&
+                                  device.metadata.browserHistory.length > 1
+                                    ? `<br><small style="color: #6c757d;">Browser History: ${device.metadata.browserHistory.join(
+                                        " → "
+                                      )}</small>`
+                                    : ""
+                                }
+                            </div>
                         </div>
                         
                         <div class="info-item">
@@ -529,6 +573,56 @@
             `
           )
           .join("");
+      }
+
+      async function removeBlockedDevice(fingerprint) {
+        if (
+          !confirm(
+            `Are you sure you want to unblock device: ${fingerprint}?\\n\\nThis will remove the rate limit and allow the device to create rooms again.`
+          )
+        ) {
+          return;
+        }
+
+        const button = document.querySelector(
+          `button[onclick="removeBlockedDevice('${fingerprint}')"]`
+        );
+        const originalText = button.innerHTML;
+
+        try {
+          // Disable button and show loading state
+          button.disabled = true;
+          button.innerHTML = "⏳ Removing...";
+
+          const response = await fetch(
+            `/api/admin/blocked/${encodeURIComponent(fingerprint)}`,
+            {
+              method: "DELETE",
+            }
+          );
+
+          const data = await response.json();
+
+          if (data.success) {
+            // Show success message
+            button.innerHTML = "✅ Removed";
+            button.style.background = "#28a745";
+
+            // Refresh the data after a short delay
+            setTimeout(() => {
+              loadData();
+            }, 1000);
+          } else {
+            throw new Error(data.error || "Failed to remove device");
+          }
+        } catch (error) {
+          console.error("Error removing blocked device:", error);
+          alert(`Failed to unblock device: ${error.message}`);
+
+          // Restore button state
+          button.disabled = false;
+          button.innerHTML = originalText;
+        }
       }
 
       // Auto-refresh every 30 seconds (only when logged in)

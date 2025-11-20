@@ -27,7 +27,8 @@ const anonymousLimitSchema = new mongoose.Schema({
     browser: String,          // Browser type
     language: String,         // Accept-Language
     userAgent: String,        // Full user agent
-    relatedFingerprints: [String]  // List of related fingerprints
+    relatedFingerprints: [String],  // List of related fingerprints
+    browserHistory: [String]   // Track browser switches for same user
   },
   createdAt: {
     type: Date,
