@@ -5,6 +5,7 @@ const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const mongoose = require('mongoose');
+const session = require('express-session');
 require('dotenv').config();
 
 // Import authentication middleware
@@ -30,11 +31,59 @@ app.use(cors());
 app.use(express.static('public'));
 app.use(express.json());
 
+// Session middleware for admin authentication
+app.use(session({
+  secret: process.env.ADMIN_SESSION_SECRET || 'shareup-admin-secret-2025',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false, // Set to true in production with HTTPS
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
+// Admin authentication middleware
+const requireAdminAuth = (req, res, next) => {
+  if (req.session.isAdminAuthenticated) {
+    return next();
+  }
+  return res.status(401).json({ error: 'Admin authentication required' });
+};
+
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
+// Admin authentication routes
+app.post('/api/admin/login', (req, res) => {
+  const { password } = req.body;
+  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+
+  if (password === adminPassword) {
+    req.session.isAdminAuthenticated = true;
+    res.json({ success: true, message: 'Admin authenticated successfully' });
+  } else {
+    res.status(401).json({ success: false, error: 'Invalid admin password' });
+  }
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to logout' });
+    }
+    res.json({ success: true, message: 'Logged out successfully' });
+  });
+});
+
+app.get('/api/admin/status', (req, res) => {
+  res.json({
+    authenticated: !!req.session.isAdminAuthenticated,
+    message: req.session.isAdminAuthenticated ? 'Authenticated' : 'Not authenticated'
+  });
+});
+
 // Admin endpoint to view blocked/rate-limited devices and IPs
-app.get('/api/admin/blocked', async (req, res) => {
+app.get('/api/admin/blocked', requireAdminAuth, async (req, res) => {
   try {
     const today = new Date().toDateString(); // Use same format as database
 

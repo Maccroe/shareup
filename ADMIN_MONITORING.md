@@ -28,9 +28,33 @@ ShareUp now includes comprehensive monitoring for anonymous user rate limiting. 
 
 ## Accessing the Admin Dashboard
 
+### 🔐 **Authentication Required**
+
+The admin dashboard is now password protected for security. You need to authenticate before accessing the monitoring features.
+
+**Default Credentials:**
+
+- Password: `shareup_admin_2025` (configurable via ADMIN_PASSWORD environment variable)
+
 ### Web Interface
 
-Visit: `http://localhost:3000/admin`
+1. Visit: `http://localhost:3000/admin`
+2. Enter the admin password when prompted
+3. Click "Login" or press Enter
+
+**Session Management:**
+
+- Login sessions last for 24 hours
+- Automatic logout on session expiry
+- Manual logout button available in the dashboard
+- Sessions persist across browser tabs
+
+**Security Features:**
+
+- Password-based authentication
+- Session-based access control
+- Automatic redirect to login on unauthorized access
+- Protected API endpoints
 
 The dashboard shows:
 

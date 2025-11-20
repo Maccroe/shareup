@@ -13,76 +13,6 @@
         min-height: 100vh;
       }
 
-      .login-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        padding: 20px;
-      }
-
-      .login-form {
-        background: white;
-        padding: 40px;
-        border-radius: 15px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        text-align: center;
-        max-width: 400px;
-        width: 100%;
-      }
-
-      .login-form h1 {
-        color: #333;
-        margin-bottom: 30px;
-        font-size: 2em;
-      }
-
-      .input-group {
-        margin-bottom: 20px;
-      }
-
-      .input-group input {
-        width: 100%;
-        padding: 15px;
-        border: 2px solid #e9ecef;
-        border-radius: 10px;
-        font-size: 1em;
-        margin-bottom: 15px;
-        box-sizing: border-box;
-        transition: border-color 0.3s;
-      }
-
-      .input-group input:focus {
-        outline: none;
-        border-color: #667eea;
-      }
-
-      .input-group button {
-        width: 100%;
-        padding: 15px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 10px;
-        font-size: 1em;
-        cursor: pointer;
-        transition: transform 0.2s;
-      }
-
-      .input-group button:hover {
-        transform: translateY(-2px);
-      }
-
-      .error-message {
-        color: #dc3545;
-        margin-top: 10px;
-        padding: 10px;
-        background: #f8d7da;
-        border-radius: 5px;
-        border: 1px solid #f5c6cb;
-        display: none;
-      }
-
       .container {
         max-width: 1200px;
         margin: 0 auto;
@@ -92,32 +22,11 @@
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
       }
 
-      .dashboard-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 30px;
-      }
-
-      .dashboard-header h1 {
+      h1 {
         color: #333;
-        margin: 0;
+        text-align: center;
+        margin-bottom: 30px;
         font-size: 2em;
-      }
-
-      .logout-btn {
-        background: #dc3545;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 20px;
-        cursor: pointer;
-        font-size: 0.9em;
-        transition: background-color 0.3s;
-      }
-
-      .logout-btn:hover {
-        background: #c82333;
       }
 
       .stats {
@@ -167,7 +76,7 @@
 
       .device-header {
         display: flex;
-        justify-content: space-between;
+        justify-content: between;
         align-items: center;
         margin-bottom: 15px;
       }
@@ -268,43 +177,28 @@
         .device-info {
           grid-template-columns: 1fr;
         }
-
-        .dashboard-header {
-          flex-direction: column;
-          gap: 15px;
-        }
       }
     </style>
   </head>
-  <body>
+<body>
     <!-- Admin Login Form -->
     <div id="loginContainer" class="login-container">
-      <div class="login-form">
-        <h1>🔐 Admin Login</h1>
-        <div class="input-group">
-          <input
-            type="password"
-            id="adminPassword"
-            placeholder="Enter admin password"
-          />
-          <button onclick="adminLogin()">Login</button>
+        <div class="login-form">
+            <h1>🔐 Admin Login</h1>
+            <div class="input-group">
+                <input type="password" id="adminPassword" placeholder="Enter admin password" />
+                <button onclick="adminLogin()">Login</button>
+            </div>
+            <div id="loginError" class="error-message"></div>
         </div>
-        <div id="loginError" class="error-message"></div>
-        <p style="margin-top: 20px; color: #6c757d; font-size: 0.9em">
-          <!-- Default password: <code>admin123</code><br> -->
-          <!-- <small>Change via ADMIN_PASSWORD environment variable</small> -->
-        </p>
-      </div>
     </div>
 
     <!-- Admin Dashboard (hidden by default) -->
-    <div id="dashboardContainer" class="container" style="display: none">
-      <div class="dashboard-header">
-        <h1>📊 ShareUp Admin Dashboard</h1>
-        <button class="logout-btn" onclick="adminLogout()">🚪 Logout</button>
-      </div>
-
-      <div class="stats" id="stats">
+    <div id="dashboardContainer" class="container" style="display: none;">
+        <div class="dashboard-header">
+            <h1>📊 ShareUp Admin Dashboard</h1>
+            <button class="logout-btn" onclick="adminLogout()">🚪 Logout</button>
+        </div>      <div class="stats" id="stats">
         <div class="stat-card">
           <div class="stat-number" id="totalBlocked">-</div>
           <div class="stat-label">Blocked Devices</div>
@@ -332,97 +226,6 @@
     </div>
 
     <script>
-      // Check authentication status on page load
-      window.addEventListener("load", checkAuthStatus);
-
-      async function checkAuthStatus() {
-        try {
-          const response = await fetch("/api/admin/status");
-          const data = await response.json();
-
-          if (data.authenticated) {
-            showDashboard();
-            loadData();
-          } else {
-            showLogin();
-          }
-        } catch (error) {
-          console.error("Error checking auth status:", error);
-          showLogin();
-        }
-      }
-
-      function showLogin() {
-        document.getElementById("loginContainer").style.display = "flex";
-        document.getElementById("dashboardContainer").style.display = "none";
-      }
-
-      function showDashboard() {
-        document.getElementById("loginContainer").style.display = "none";
-        document.getElementById("dashboardContainer").style.display = "block";
-      }
-
-      async function adminLogin() {
-        const password = document.getElementById("adminPassword").value;
-        const errorDiv = document.getElementById("loginError");
-
-        if (!password) {
-          showError("Please enter a password");
-          return;
-        }
-
-        try {
-          const response = await fetch("/api/admin/login", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ password }),
-          });
-
-          const data = await response.json();
-
-          if (data.success) {
-            errorDiv.style.display = "none";
-            showDashboard();
-            loadData();
-          } else {
-            showError(data.error || "Invalid password");
-          }
-        } catch (error) {
-          console.error("Login error:", error);
-          showError("Login failed. Please try again.");
-        }
-      }
-
-      async function adminLogout() {
-        try {
-          await fetch("/api/admin/logout", { method: "POST" });
-          showLogin();
-          document.getElementById("adminPassword").value = "";
-        } catch (error) {
-          console.error("Logout error:", error);
-        }
-      }
-
-      function showError(message) {
-        const errorDiv = document.getElementById("loginError");
-        errorDiv.textContent = message;
-        errorDiv.style.display = "block";
-      }
-
-      // Allow Enter key to submit login
-      document.addEventListener("DOMContentLoaded", () => {
-        const passwordInput = document.getElementById("adminPassword");
-        if (passwordInput) {
-          passwordInput.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") {
-              adminLogin();
-            }
-          });
-        }
-      });
-
       async function loadData() {
         const container = document.getElementById("blockedDevices");
         container.innerHTML =
@@ -430,12 +233,6 @@
 
         try {
           const response = await fetch("/api/admin/blocked");
-
-          if (response.status === 401) {
-            showLogin();
-            return;
-          }
-
           const data = await response.json();
 
           updateStats(data);
@@ -531,14 +328,11 @@
           .join("");
       }
 
-      // Auto-refresh every 30 seconds (only when logged in)
-      setInterval(() => {
-        if (
-          document.getElementById("dashboardContainer").style.display !== "none"
-        ) {
-          loadData();
-        }
-      }, 30000);
+      // Auto-refresh every 30 seconds
+      setInterval(loadData, 30000);
+
+      // Load data on page load
+      loadData();
     </script>
   </body>
 </html>
