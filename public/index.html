@@ -168,7 +168,7 @@
 
           <div class="sent-files" id="sent-files">
             <h3>Sent Files</h3>
-            <div class="sent-bulk-actions">
+            <div class="sent-bulk-actions auth-only" id="sent-bulk-actions">
               <button
                 id="pause-all-btn"
                 class="btn secondary small"
@@ -197,6 +197,12 @@
               >
                 Clear Cancelled
               </button>
+            </div>
+            <div class="anonymous-bulk-info" id="anonymous-bulk-info">
+              <p class="info-text">
+                💡 <strong>Login for bulk transfer controls</strong> - Pause,
+                resume, or cancel all transfers at once
+              </p>
             </div>
             <div class="files-list" id="sent-files-list"></div>
           </div>

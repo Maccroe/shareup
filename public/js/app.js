@@ -39,6 +39,7 @@ async function checkAuthStatus() {
     const data = await response.json();
     if (data.success && data.authenticated) {
       currentUser = data.user;
+      window.currentUser = data.user;
       authToken = token;
       updateUserUI(true);
       return data.user;
@@ -59,6 +60,9 @@ function updateUserUI(isLoggedIn) {
   const fileLimitInfo = document.getElementById('file-limit-info');
 
   if (isLoggedIn && currentUser) {
+    // Add logged-in class to body for CSS styling
+    document.body.classList.add('logged-in');
+
     userMenu.classList.remove('hidden');
     authButtons.classList.add('hidden');
 
@@ -81,12 +85,15 @@ function updateUserUI(isLoggedIn) {
     // Load room history for logged-in users
     setTimeout(() => loadRoomHistory(), 100);
   } else {
+    // Remove logged-in class from body for CSS styling
+    document.body.classList.remove('logged-in');
+
     userMenu.classList.add('hidden');
     authButtons.classList.remove('hidden');
 
     // Update file limit info for anonymous users
     if (fileLimitInfo) {
-      fileLimitInfo.textContent = 'Anonymous users: 30MB limit per file • 0.03 MB/s speed • 2-minute rooms • Login for premium features';
+      fileLimitInfo.textContent = 'Anonymous users: 30MB limit per file • 0.03 MB/s speed • 2-minute rooms • No transfer controls • Login for premium features';
       fileLimitInfo.classList.remove('logged-in');
     }
 
@@ -100,6 +107,7 @@ function updateUserUI(isLoggedIn) {
 
 function logout() {
   currentUser = null;
+  window.currentUser = null;
   authToken = null;
   localStorage.removeItem('authToken');
   updateUserUI(false);
@@ -466,6 +474,7 @@ async function handleLogin(e) {
 
     if (data.success) {
       currentUser = data.user;
+      window.currentUser = data.user;
       authToken = data.token;
       localStorage.setItem('authToken', data.token);
 
@@ -530,6 +539,7 @@ async function handleRegister(e) {
 
     if (data.success) {
       currentUser = data.user;
+      window.currentUser = data.user;
       authToken = data.token;
       localStorage.setItem('authToken', data.token);
 
@@ -1436,6 +1446,14 @@ function outgoingFileCreate({ id, name, size, status = 'queued' }) {
   item.setAttribute('data-id', id);
   const statusClass = status === 'sent' ? 'sent' : status === 'sending' ? 'sending' : '';
   const statusText = status === 'sent' ? 'Sent' : status === 'sending' ? 'Sending…' : 'Queued';
+
+  // Only show transfer controls for logged-in users
+  const isLoggedIn = window.currentUser && window.currentUser.username;
+  const transferControls = isLoggedIn ? `
+        <button class=\"sent-btn pause\" data-action=\"pause\" data-id=\"${id}\" title=\"Pause\">⏸</button>
+        <button class=\"sent-btn resume hidden\" data-action=\"resume\" data-id=\"${id}\" title=\"Resume\">▶</button>
+        <button class=\"sent-btn cancel\" data-action=\"cancel\" data-id=\"${id}\" title=\"Cancel\">✕</button>` : '';
+
   // Multi-line layout (no flex):
   item.innerHTML = `
     <div class=\"line file-name\"><span class=\"file-icon ${fileIcon}\"></span> ${name}</div>
@@ -1443,9 +1461,7 @@ function outgoingFileCreate({ id, name, size, status = 'queued' }) {
     <div class=\"line status\"><span class=\"status-label ${statusClass}\">${statusText}</span></div>
     <div class=\"line progress\"><div class=\"sent-progress\"><div class=\"sent-progress-bar\"><div class=\"sent-progress-fill\"></div></div></div></div>
     <div class=\"line actions\"><div class=\"sent-actions\">
-        <button class=\"sent-btn pause\" data-action=\"pause\" data-id=\"${id}\" title=\"Pause\">⏸</button>
-        <button class=\"sent-btn resume hidden\" data-action=\"resume\" data-id=\"${id}\" title=\"Resume\">▶</button>
-        <button class=\"sent-btn cancel\" data-action=\"cancel\" data-id=\"${id}\" title=\"Cancel\">✕</button>
+        ${transferControls}
         </div></div>
         `;
   // <button class=\"sent-btn retry hidden\" data-action=\"retry\" data-id=\"${id}\" title=\"Retry\">🔄</button>
@@ -1510,6 +1526,11 @@ function outgoingFileComplete(id) {
 
 // Pause / Resume / Cancel
 function outgoingFilePause(id) {
+  // Only allow logged-in users to pause transfers
+  if (!window.currentUser || !window.currentUser.username) {
+    return;
+  }
+
   const ref = window.sentItemMap.get(id);
   const ctrl = window.outgoingControl.get(id);
   if (!ref || !ctrl || ctrl.cancelled) return;
@@ -1527,6 +1548,11 @@ function outgoingFilePause(id) {
 }
 
 function outgoingFileResume(id) {
+  // Only allow logged-in users to resume transfers
+  if (!window.currentUser || !window.currentUser.username) {
+    return;
+  }
+
   const ref = window.sentItemMap.get(id);
   const ctrl = window.outgoingControl.get(id);
   if (!ref || !ctrl || ctrl.cancelled) return;
@@ -1543,6 +1569,11 @@ function outgoingFileResume(id) {
 }
 
 function outgoingFileCancel(id) {
+  // Only allow logged-in users to cancel transfers
+  if (!window.currentUser || !window.currentUser.username) {
+    return;
+  }
+
   const ref = window.sentItemMap.get(id);
   const ctrl = window.outgoingControl.get(id);
   if (!ref || !ctrl || ctrl.cancelled) return;

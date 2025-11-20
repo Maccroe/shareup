@@ -547,6 +547,15 @@ header {
 .sent-actions {
   display: flex;
   gap: 6px;
+  min-height: 24px;
+  align-items: center;
+}
+
+.sent-actions:empty::after {
+  content: "Login for transfer controls";
+  font-size: 0.7rem;
+  color: #9aa0a6;
+  font-style: italic;
 }
 .sent-btn {
   background: #f1f3f4;
@@ -585,6 +594,36 @@ header {
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 10px;
+}
+
+/* Hide auth-only elements by default */
+.auth-only {
+  display: none;
+}
+
+/* Show auth-only elements when user is logged in */
+body.logged-in .auth-only {
+  display: flex;
+}
+
+/* Show anonymous info by default */
+.anonymous-bulk-info {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #4285f4;
+}
+
+.anonymous-bulk-info .info-text {
+  font-size: 0.85rem;
+  color: #5f6368;
+  margin: 0;
+}
+
+/* Hide anonymous info when user is logged in */
+body.logged-in .anonymous-bulk-info {
+  display: none;
 }
 .btn.small {
   padding: 6px 10px;
