@@ -33,6 +33,64 @@ app.use(express.json());
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
+// Admin endpoint to view blocked/rate-limited devices and IPs
+app.get('/api/admin/blocked', async (req, res) => {
+  try {
+    const today = new Date().toDateString(); // Use same format as database
+
+    // Get all entries for today that have reached the limit
+    const blockedDevices = await AnonymousLimit.find({
+      date: today,
+      count: { $gte: DAILY_ROOM_LIMIT }
+    }).sort({ count: -1, updatedAt: -1 });
+
+    // Get all entries for today to calculate stats
+    const allDevices = await AnonymousLimit.find({ date: today });
+
+    // Calculate statistics
+    const uniqueIPs = new Set();
+    let totalRoomAttempts = 0;
+
+    allDevices.forEach(device => {
+      device.ips.forEach(ip => uniqueIPs.add(ip));
+      totalRoomAttempts += device.count;
+    });
+
+    // Format blocked devices data
+    const formattedData = blockedDevices.map(entry => ({
+      fingerprint: entry.fingerprint,
+      count: entry.count,
+      limit: DAILY_ROOM_LIMIT,
+      date: entry.date,
+      ips: entry.ips || [],
+      metadata: {
+        network: entry.metadata?.network || 'Unknown',
+        device: entry.metadata?.device || 'Unknown',
+        os: entry.metadata?.os || 'Unknown',
+        browser: entry.metadata?.browser || 'Unknown',
+        language: entry.metadata?.language || 'Unknown',
+        userAgent: entry.metadata?.userAgent || 'Unknown',
+        relatedFingerprints: entry.metadata?.relatedFingerprints || []
+      }
+    }));
+
+    res.json({
+      success: true,
+      totalBlocked: blockedDevices.length,
+      totalUniqueIPs: uniqueIPs.size,
+      totalRoomAttempts: totalRoomAttempts,
+      blockedDevices: formattedData
+    });
+  } catch (error) {
+    console.error('Error fetching blocked devices:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch blocked devices',
+      message: error.message
+    });
+  }
+});
+
 // MongoDB Connection with retry logic
 const connectDB = async () => {
   try {
@@ -65,12 +123,11 @@ mongoose.connection.on('reconnected', () => {
 
 connectDB().then(async (connected) => {
   if (connected) {
-    // Clean up old anonymous limit entries on startup
+    // Clean up old anonymous limit entries on startup (entries from previous days only)
     try {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
+      const today = new Date().toDateString();
       const deletedCount = await AnonymousLimit.deleteMany({
-        date: { $lt: yesterday.toDateString() }
+        date: { $ne: today } // Delete entries that are NOT from today
       });
       if (deletedCount.deletedCount > 0) {
         console.log(`Cleaned up ${deletedCount.deletedCount} old anonymous limit entries`);
@@ -310,8 +367,15 @@ async function checkAnonymousRoomLimit(socket) {
     if (effectiveUsage >= DAILY_ROOM_LIMIT) {
       const resetInfo = getTimeUntilReset();
 
-      // Log bypass attempt for monitoring
-      console.log(`Bypass attempt detected - Primary: ${fingerprints.primary}, Related: ${relatedFingerprints.size}, Total usage: ${effectiveUsage}`);
+      // Enhanced logging for admin monitoring
+      console.log(`🚫 RATE LIMIT REACHED - Anonymous user blocked:`);
+      console.log(`   Fingerprint: ${fingerprints.primary}`);
+      console.log(`   IP Address: ${fingerprints.ip}`);
+      console.log(`   Device: ${fingerprints.os}/${fingerprints.browser}`);
+      console.log(`   Network: ${fingerprints.network}`);
+      console.log(`   Usage: ${effectiveUsage}/${DAILY_ROOM_LIMIT} rooms`);
+      console.log(`   Related fingerprints: ${relatedFingerprints.size}`);
+      console.log(`   User Agent: ${fingerprints.userAgent.substring(0, 50)}...`);
 
       return {
         allowed: false,
@@ -348,7 +412,15 @@ async function incrementAnonymousRoomUsage(socket) {
     if (limitData) {
       limitData.count++;
       await limitData.save();
-      console.log(`Anonymous user ${fingerprints.primary} used ${limitData.count}/${DAILY_ROOM_LIMIT} daily rooms (Device: ${fingerprints.os}/${fingerprints.browser})`);
+
+      const remaining = DAILY_ROOM_LIMIT - limitData.count;
+      const logMessage = `Anonymous user ${fingerprints.primary} used ${limitData.count}/${DAILY_ROOM_LIMIT} daily rooms (Device: ${fingerprints.os}/${fingerprints.browser})`;
+
+      if (remaining <= 1) {
+        console.log(`⚠️  APPROACHING LIMIT: ${logMessage} - ${remaining} rooms remaining`);
+      } else {
+        console.log(logMessage);
+      }
     }
   } catch (error) {
     console.error('Error incrementing room usage:', error);
@@ -361,6 +433,11 @@ app.get('/', (req, res) => {
 // Serve comparison page
 app.get('/comparison', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'comparison.html'));
+});
+
+// Serve admin dashboard
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // Socket.io connection handling
