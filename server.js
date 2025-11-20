@@ -124,6 +124,14 @@ app.delete('/api/admin/blocked/:fingerprint', requireAdminAuth, async (req, res)
 
     if (deletedDevice) {
       logger.info(`🔓 Admin removed rate limit for device: ${fingerprint} (${deletedDevice.metadata?.os}/${deletedDevice.metadata?.browser})`);
+
+      // Send Discord notification for device unblock
+      await discordLogger.logDeviceUnblocked(
+        fingerprint,
+        deletedDevice.metadata?.os || 'Unknown',
+        deletedDevice.metadata?.browser || 'Unknown'
+      );
+
       res.json({
         success: true,
         message: 'Device unblocked successfully',
