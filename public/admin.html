@@ -354,7 +354,7 @@
       <button class="refresh-btn" onclick="loadData()">🔄 Refresh Data</button>
 
       <div class="section">
-        <h2>🚫 Rate Limited Devices & IPs</h2>
+        <h2>📊 Device Activity & Rate Limiting</h2>
         <div id="blockedDevices"></div>
       </div>
     </div>
@@ -489,25 +489,60 @@
 
         if (devices.length === 0) {
           container.innerHTML =
-            '<div class="no-data">✅ No devices currently rate limited today!</div>';
+            '<div class="no-data">✅ No device activity detected today!</div>';
           return;
         }
 
-        container.innerHTML = devices
-          .map(
-            (device) => `
+        // Separate blocked and active devices
+        const blockedDevices = devices.filter((device) => device.isBlocked);
+        const activeDevices = devices.filter((device) => !device.isBlocked);
+
+        let html = "";
+
+        // Show blocked devices first
+        if (blockedDevices.length > 0) {
+          html +=
+            '<h3 style="color: #dc3545; margin: 20px 0 10px 0;">🚫 Blocked Devices (Reached Limit)</h3>';
+          html += blockedDevices
+            .map((device) => generateDeviceCard(device, true))
+            .join("");
+        }
+
+        // Show active devices
+        if (activeDevices.length > 0) {
+          html +=
+            '<h3 style="color: #28a745; margin: 20px 0 10px 0;">📱 Active Devices (Under Limit)</h3>';
+          html += activeDevices
+            .map((device) => generateDeviceCard(device, false))
+            .join("");
+        }
+
+        container.innerHTML = html;
+      }
+
+      function generateDeviceCard(device, isBlocked) {
+        const badgeColor = isBlocked ? "#dc3545" : "#28a745";
+        const statusText = isBlocked ? "BLOCKED" : "ACTIVE";
+
+        return `
                 <div class="device-card">
                     <div class="device-header">
                         <div class="fingerprint">${device.fingerprint}</div>
                         <div class="device-actions">
-                            <div class="usage-badge">${device.count}/${
-              device.limit
-            } rooms used</div>
-                            <button class="remove-btn" onclick="removeBlockedDevice('${
-                              device.fingerprint
-                            }')" title="Unblock this device">
+                            <div class="usage-badge" style="background: ${badgeColor}">
+                                ${device.count}/${
+          device.limit
+        } rooms (${statusText})
+                            </div>
+                            ${
+                              isBlocked
+                                ? `
+                            <button class="remove-btn" onclick="removeBlockedDevice('${device.fingerprint}')" title="Unblock this device">
                                 🔓 Unblock
                             </button>
+                            `
+                                : ""
+                            }
                         </div>
                     </div>
                     
@@ -526,8 +561,8 @@
                         <div class="info-item">
                             <div class="info-label">Device Info</div>
                             <div class="info-value">${device.metadata.os} / ${
-              device.metadata.browser
-            }
+          device.metadata.browser
+        }
                                 ${
                                   device.metadata.browserHistory &&
                                   device.metadata.browserHistory.length > 1
@@ -570,9 +605,7 @@
                         </div>
                     </div>
                 </div>
-            `
-          )
-          .join("");
+            `;
       }
 
       async function removeBlockedDevice(fingerprint) {

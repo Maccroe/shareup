@@ -65,7 +65,10 @@ roomSchema.methods.updateActivity = function () {
 
 // Add participant
 roomSchema.methods.addParticipant = function (userId, socketId, role = 'participant') {
-  console.log(`Adding participant to room ${this.roomId}: userId=${userId}, socketId=${socketId}, role=${role}`);
+  // Verbose logging only - can be controlled by LOG_LEVEL
+  if (process.env.LOG_LEVEL === 'verbose') {
+    console.log(`Adding participant to room ${this.roomId}: userId=${userId}, socketId=${socketId}, role=${role}`);
+  }
 
   // Remove existing participant entry
   this.participants = this.participants.filter(p =>
@@ -98,21 +101,29 @@ roomSchema.methods.addParticipant = function (userId, socketId, role = 'particip
         joinedAt: new Date(),
         role
       });
-      console.log(`Added user ${userId} to participant history for room ${this.roomId}`);
+      if (process.env.LOG_LEVEL === 'verbose') {
+        console.log(`Added user ${userId} to participant history for room ${this.roomId}`);
+      }
     } else {
-      console.log(`User ${userId} already exists in participant history for room ${this.roomId}`);
+      if (process.env.LOG_LEVEL === 'verbose') {
+        console.log(`User ${userId} already exists in participant history for room ${this.roomId}`);
+      }
     }
   }
 
   const historyCount = this.participantHistory ? this.participantHistory.length : 0;
-  console.log(`Room ${this.roomId} now has ${this.participants.length} active participants, ${historyCount} in history`);
+  if (process.env.LOG_LEVEL === 'verbose') {
+    console.log(`Room ${this.roomId} now has ${this.participants.length} active participants, ${historyCount} in history`);
+  }
   this.lastActivity = new Date();
   return this.save();
 };
 
 // Remove participant
 roomSchema.methods.removeParticipant = function (socketId, userId = null) {
-  console.log(`Removing participant from room ${this.roomId}: socketId=${socketId}, userId=${userId}`);
+  if (process.env.LOG_LEVEL === 'verbose') {
+    console.log(`Removing participant from room ${this.roomId}: socketId=${socketId}, userId=${userId}`);
+  }
 
   const initialCount = this.participants.length;
   this.participants = this.participants.filter(p =>
@@ -121,7 +132,9 @@ roomSchema.methods.removeParticipant = function (socketId, userId = null) {
   );
 
   const finalCount = this.participants.length;
-  console.log(`Room ${this.roomId} participant count: ${initialCount} -> ${finalCount}`);
+  if (process.env.LOG_LEVEL === 'verbose') {
+    console.log(`Room ${this.roomId} participant count: ${initialCount} -> ${finalCount}`);
+  }
 
   this.lastActivity = new Date();
   return this.save();
@@ -142,13 +155,17 @@ roomSchema.statics.cleanExpiredRooms = async function () {
   const result = await this.deleteMany({
     expiresAt: { $lt: new Date() }
   });
-  console.log(`Cleaned ${result.deletedCount} expired rooms from database`);
+  if (result.deletedCount > 0 && process.env.LOG_LEVEL === 'verbose') {
+    console.log(`Cleaned ${result.deletedCount} expired rooms from database`);
+  }
   return result;
 };
 
 // Static method to get user's room history
 roomSchema.statics.getUserRoomHistory = async function (userId) {
-  console.log(`Getting room history for user: ${userId}`);
+  if (process.env.LOG_LEVEL === 'verbose') {
+    console.log(`Getting room history for user: ${userId}`);
+  }
 
   try {
     const now = new Date();
@@ -165,16 +182,18 @@ roomSchema.statics.getUserRoomHistory = async function (userId) {
       .populate('creator', 'username avatar')
       .populate('participants.user', 'username');
 
-    console.log(`Found ${rooms.length} rooms for user ${userId}`);
-    rooms.forEach(room => {
-      const participantHistoryLength = room.participantHistory ? room.participantHistory.length : 0;
-      console.log(`  Room ${room.roomId}: ${room.participants.length} active participants, ${participantHistoryLength} in history`);
-      if (room.participantHistory) {
-        room.participantHistory.forEach(p => {
-          console.log(`    - History User: ${p.user}, Role: ${p.role || 'participant'}`);
-        });
-      }
-    });
+    if (process.env.LOG_LEVEL === 'verbose') {
+      console.log(`Found ${rooms.length} rooms for user ${userId}`);
+      rooms.forEach(room => {
+        const participantHistoryLength = room.participantHistory ? room.participantHistory.length : 0;
+        console.log(`  Room ${room.roomId}: ${room.participants.length} active participants, ${participantHistoryLength} in history`);
+        if (room.participantHistory) {
+          room.participantHistory.forEach(p => {
+            console.log(`    - History User: ${p.user}, Role: ${p.role || 'participant'}`);
+          });
+        }
+      });
+    }
 
     return rooms;
   } catch (error) {

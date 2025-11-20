@@ -8,12 +8,38 @@ const mongoose = require('mongoose');
 const session = require('express-session');
 require('dotenv').config();
 
+// Logging configuration
+const LOG_LEVEL = process.env.LOG_LEVEL || 'minimal'; // 'minimal', 'normal', 'verbose'
+
+const logger = {
+  info: (message) => {
+    if (LOG_LEVEL !== 'minimal') {
+      console.log(message);
+    }
+  },
+  warn: (message) => {
+    console.log(message); // Always show warnings
+  },
+  error: (message) => {
+    console.error(message); // Always show errors
+  },
+  verbose: (message) => {
+    if (LOG_LEVEL === 'verbose') {
+      console.log(message);
+    }
+  },
+  essential: (message) => {
+    console.log(message); // Always show essential info
+  }
+};
+
 // Import authentication middleware
 const { socketAuth } = require('./middleware/auth');
 const authRoutes = require('./routes/auth');
 const User = require('./models/User');
 const AnonymousLimit = require('./models/AnonymousLimit');
 const Room = require('./models/Room');
+const discordLogger = require('./utils/discord');
 
 const app = express();
 const server = http.createServer(app);
@@ -97,7 +123,7 @@ app.delete('/api/admin/blocked/:fingerprint', requireAdminAuth, async (req, res)
     const deletedDevice = await AnonymousLimit.findOneAndDelete({ fingerprint });
 
     if (deletedDevice) {
-      console.log(`🔓 Admin removed rate limit for device: ${fingerprint} (${deletedDevice.metadata?.os}/${deletedDevice.metadata?.browser})`);
+      logger.info(`🔓 Admin removed rate limit for device: ${fingerprint} (${deletedDevice.metadata?.os}/${deletedDevice.metadata?.browser})`);
       res.json({
         success: true,
         message: 'Device unblocked successfully',
@@ -127,14 +153,14 @@ app.get('/api/admin/blocked', requireAdminAuth, async (req, res) => {
   try {
     const today = new Date().toDateString(); // Use same format as database
 
-    // Get all entries for today that have reached the limit
-    const blockedDevices = await AnonymousLimit.find({
-      date: today,
-      count: { $gte: DAILY_ROOM_LIMIT }
+    // Get all entries for today (not just blocked ones)
+    const allDevices = await AnonymousLimit.find({
+      date: today
     }).sort({ count: -1, updatedAt: -1 });
 
-    // Get all entries for today to calculate stats
-    const allDevices = await AnonymousLimit.find({ date: today });
+    // Separate blocked vs active devices
+    const blockedDevices = allDevices.filter(device => device.count >= DAILY_ROOM_LIMIT);
+    const activeDevices = allDevices.filter(device => device.count < DAILY_ROOM_LIMIT);
 
     // Calculate statistics
     const uniqueIPs = new Set();
@@ -145,13 +171,14 @@ app.get('/api/admin/blocked', requireAdminAuth, async (req, res) => {
       totalRoomAttempts += device.count;
     });
 
-    // Format blocked devices data
-    const formattedData = blockedDevices.map(entry => ({
+    // Format all devices data
+    const formatDevice = (entry) => ({
       fingerprint: entry.fingerprint,
       count: entry.count,
       limit: DAILY_ROOM_LIMIT,
       date: entry.date,
       ips: entry.ips || [],
+      isBlocked: entry.count >= DAILY_ROOM_LIMIT,
       metadata: {
         network: entry.metadata?.network || 'Unknown',
         device: entry.metadata?.device || 'Unknown',
@@ -161,14 +188,16 @@ app.get('/api/admin/blocked', requireAdminAuth, async (req, res) => {
         userAgent: entry.metadata?.userAgent || 'Unknown',
         relatedFingerprints: entry.metadata?.relatedFingerprints || []
       }
-    }));
+    });
 
     res.json({
       success: true,
       totalBlocked: blockedDevices.length,
+      totalActive: activeDevices.length,
+      totalDevices: allDevices.length,
       totalUniqueIPs: uniqueIPs.size,
       totalRoomAttempts: totalRoomAttempts,
-      blockedDevices: formattedData
+      blockedDevices: [...blockedDevices.map(formatDevice), ...activeDevices.map(formatDevice)]
     });
   } catch (error) {
     console.error('Error fetching blocked devices:', error);
@@ -189,7 +218,7 @@ const connectDB = async () => {
       socketTimeoutMS: 45000,
       family: 4
     });
-    console.log('Connected to MongoDB');
+    logger.essential('Connected to MongoDB');
     return true;
   } catch (error) {
     console.error('MongoDB connection error:', error);
@@ -199,7 +228,7 @@ const connectDB = async () => {
 
 // Handle MongoDB disconnection
 mongoose.connection.on('disconnected', () => {
-  console.log('MongoDB disconnected. Attempting to reconnect...');
+  logger.warn('MongoDB disconnected. Attempting to reconnect...');
 });
 
 mongoose.connection.on('error', (error) => {
@@ -207,7 +236,7 @@ mongoose.connection.on('error', (error) => {
 });
 
 mongoose.connection.on('reconnected', () => {
-  console.log('MongoDB reconnected');
+  logger.essential('MongoDB reconnected');
 });
 
 connectDB().then(async (connected) => {
@@ -219,7 +248,7 @@ connectDB().then(async (connected) => {
         date: { $ne: today } // Delete entries that are NOT from today
       });
       if (deletedCount.deletedCount > 0) {
-        console.log(`Cleaned up ${deletedCount.deletedCount} old anonymous limit entries`);
+        logger.verbose(`Cleaned up ${deletedCount.deletedCount} old anonymous limit entries`);
       }
     } catch (error) {
       console.error('Error cleaning up old limit entries:', error);
@@ -277,11 +306,11 @@ setInterval(async () => {
 
     expiredRooms.forEach(roomId => {
       rooms.delete(roomId);
-      console.log(`Cleaned expired room ${roomId} from memory`);
+      logger.verbose(`Cleaned expired room ${roomId} from memory`);
     });
 
     if (expiredRooms.length > 0) {
-      console.log(`Cleaned ${expiredRooms.length} expired rooms from memory during periodic cleanup`);
+      logger.verbose(`Cleaned ${expiredRooms.length} expired rooms from memory during periodic cleanup`);
     }
   } catch (error) {
     console.error('Error during periodic room cleanup:', error);
@@ -292,7 +321,13 @@ const DAILY_ROOM_LIMIT = 5;
 
 // Enhanced user fingerprinting for anonymous limit tracking
 function generateUserFingerprint(socket) {
-  const ip = socket.handshake.address || socket.conn.remoteAddress || 'unknown';
+  let ip = socket.handshake.address || socket.conn.remoteAddress || 'unknown';
+
+  // Normalize localhost IPs to prevent IPv4/IPv6 duplicates
+  if (ip === '::1' || ip === '::ffff:127.0.0.1' || ip === '127.0.0.1') {
+    ip = 'localhost';
+  }
+
   const userAgent = socket.handshake.headers['user-agent'] || 'unknown';
   const acceptLanguage = socket.handshake.headers['accept-language'] || 'unknown';
   const acceptEncoding = socket.handshake.headers['accept-encoding'] || 'unknown';
@@ -423,7 +458,16 @@ async function checkAnonymousRoomLimit(socket) {
 
       if (existingRecord) {
         // Update the existing record to use the new fingerprint
-        console.log(`🔄 Browser switch detected: Updating existing record for ${fingerprints.ip} (${fingerprints.os}) from ${existingRecord.metadata?.browser} to ${fingerprints.browser}`);
+        const fromBrowser = existingRecord.metadata?.browser || 'unknown';
+        await discordLogger.logBrowserSwitch(
+          fingerprints.primary,
+          fingerprints.ip,
+          fingerprints.os,
+          fromBrowser,
+          fingerprints.browser,
+          existingRecord.count,
+          DAILY_ROOM_LIMIT
+        );
         limitData = existingRecord;
         limitData.fingerprint = fingerprints.primary; // Update to new browser fingerprint
       }
@@ -464,7 +508,7 @@ async function checkAnonymousRoomLimit(socket) {
       const browserHistory = limitData.metadata?.browserHistory || [limitData.metadata?.browser];
       if (!browserHistory.includes(fingerprints.browser)) {
         browserHistory.push(fingerprints.browser);
-        console.log(`🔄 Browser switch detected for user: ${limitData.fingerprint} - Now using ${fingerprints.browser} (History: ${browserHistory.join(', ')})`);
+        // Browser switch tracking moved to Discord logging above
       }
 
       // Update metadata with latest info
@@ -490,15 +534,17 @@ async function checkAnonymousRoomLimit(socket) {
     if (effectiveUsage >= DAILY_ROOM_LIMIT) {
       const resetInfo = getTimeUntilReset();
 
-      // Enhanced logging for admin monitoring
-      console.log(`🚫 RATE LIMIT REACHED - Anonymous user blocked:`);
-      console.log(`   Fingerprint: ${fingerprints.primary}`);
-      console.log(`   IP Address: ${fingerprints.ip}`);
-      console.log(`   Device: ${fingerprints.os}/${fingerprints.browser}`);
-      console.log(`   Network: ${fingerprints.network}`);
-      console.log(`   Usage: ${effectiveUsage}/${DAILY_ROOM_LIMIT} rooms`);
-      console.log(`   Related fingerprints: ${relatedFingerprints.size}`);
-      console.log(`   User Agent: ${fingerprints.userAgent.substring(0, 50)}...`);
+      // Send to Discord instead of console logging
+      await discordLogger.logRateLimit(
+        fingerprints.primary,
+        fingerprints.ip,
+        fingerprints.os,
+        fingerprints.browser,
+        effectiveUsage,
+        DAILY_ROOM_LIMIT,
+        fingerprints.network,
+        relatedFingerprints.size
+      );
 
       return {
         allowed: false,
@@ -537,16 +583,21 @@ async function incrementAnonymousRoomUsage(socket) {
       await limitData.save();
 
       const remaining = DAILY_ROOM_LIMIT - limitData.count;
-      const logMessage = `Anonymous user ${fingerprints.primary} used ${limitData.count}/${DAILY_ROOM_LIMIT} daily rooms (Device: ${fingerprints.os}/${fingerprints.browser})`;
 
       if (remaining <= 1) {
-        console.log(`⚠️  APPROACHING LIMIT: ${logMessage} - ${remaining} rooms remaining`);
-        if (limitData.metadata?.browserHistory && limitData.metadata.browserHistory.length > 1) {
-          console.log(`   Browser History: ${limitData.metadata.browserHistory.join(' → ')}`);
-        }
-      } else {
-        console.log(logMessage);
+        await discordLogger.logApproachingLimit(
+          fingerprints.primary,
+          fingerprints.os,
+          fingerprints.browser,
+          limitData.count,
+          DAILY_ROOM_LIMIT,
+          remaining,
+          limitData.metadata?.browserHistory
+        );
       }
+
+      // Keep minimal terminal logging for development
+      logger.verbose(`Anonymous user ${fingerprints.primary} used ${limitData.count}/${DAILY_ROOM_LIMIT} daily rooms (${fingerprints.os}/${fingerprints.browser})`);
     }
   } catch (error) {
     console.error('Error incrementing room usage:', error);
@@ -570,14 +621,14 @@ app.get('/admin', (req, res) => {
 io.use(socketAuth); // Add optional authentication to sockets
 
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.id, socket.user ? `(${socket.user.username})` : '(anonymous)');
+  logger.verbose('User connected:', socket.id, socket.user ? `(${socket.user.username})` : '(anonymous)');
 
   // For debugging: if user is logged in, immediately check their room history
   if (socket.user) {
     setTimeout(async () => {
       try {
         const rooms = await Room.getUserRoomHistory(socket.user._id);
-        console.log(`DEBUG: User ${socket.user.username} has ${rooms.length} rooms in database`);
+        logger.verbose(`DEBUG: User ${socket.user.username} has ${rooms.length} rooms in database`);
       } catch (error) {
         console.error('DEBUG: Error checking user room history:', error);
       }
@@ -621,15 +672,15 @@ io.on('connection', (socket) => {
       });
 
       await roomDoc.save();
-      console.log(`Room ${roomId} saved to database with creator: ${roomDoc.creator}`);
+      logger.verbose(`Room ${roomId} saved to database with creator: ${roomDoc.creator}`);
 
       // Add creator as participant in database
       if (socket.user) {
         await roomDoc.addParticipant(socket.user._id, socket.id, 'creator');
-        console.log(`Creator ${socket.user.username} (ID: ${socket.user._id}) added to room ${roomId} in database`);
+        logger.verbose(`Creator ${socket.user.username} (ID: ${socket.user._id}) added to room ${roomId} in database`);
       } else {
         await roomDoc.addParticipant(null, socket.id, 'creator');
-        console.log(`Anonymous creator added to room ${roomId} in database`);
+        logger.verbose(`Anonymous creator added to room ${roomId} in database`);
       }
 
       // Keep in-memory copy for quick access
@@ -653,7 +704,7 @@ io.on('connection', (socket) => {
         setTimeout(async () => {
           const room = rooms.get(roomId);
           if (room && room.isAnonymous) {
-            console.log(`Anonymous room ${roomId} expired after 2 minutes`);
+            logger.verbose(`Anonymous room ${roomId} expired after 2 minutes`);
             // Notify participants about expiration
             io.to(roomId).emit('room-expired', {
               roomId,
@@ -664,7 +715,7 @@ io.on('connection', (socket) => {
               rooms.delete(roomId);
               try {
                 await Room.findOneAndDelete({ roomId });
-                console.log(`Room ${roomId} deleted from memory and database after expiration`);
+                logger.verbose(`Room ${roomId} deleted from memory and database after expiration`);
               } catch (error) {
                 console.error(`Error deleting expired room ${roomId} from database:`, error);
               }
@@ -678,7 +729,7 @@ io.on('connection', (socket) => {
         setTimeout(async () => {
           const room = rooms.get(roomId);
           if (room && !room.isAnonymous) {
-            console.log(`Logged-in user room ${roomId} expired after 24 hours`);
+            logger.verbose(`Logged-in user room ${roomId} expired after 24 hours`);
             // Notify participants about expiration
             io.to(roomId).emit('room-expired', {
               roomId,
@@ -689,7 +740,7 @@ io.on('connection', (socket) => {
               rooms.delete(roomId);
               try {
                 await Room.findOneAndDelete({ roomId });
-                console.log(`Room ${roomId} deleted from memory and database after 24-hour expiration`);
+                logger.verbose(`Room ${roomId} deleted from memory and database after 24-hour expiration`);
               } catch (error) {
                 console.error(`Error deleting expired room ${roomId} from database:`, error);
               }
@@ -705,7 +756,7 @@ io.on('connection', (socket) => {
         });
       }
 
-      console.log(`Room created: ${roomId} by ${socket.user ? socket.user.username : 'anonymous'} ${isAnonymous ? '(2min limit)' : '(24hr limit)'}`);
+      logger.info(`Room created: ${roomId} by ${socket.user ? socket.user.username : 'anonymous'} ${isAnonymous ? '(2min limit)' : '(24hr limit)'}`);
 
       // Send success response
       callback({
@@ -770,7 +821,7 @@ io.on('connection', (socket) => {
         const roomDoc = await Room.findOne({ roomId });
         if (roomDoc) {
           await roomDoc.addParticipant(socket.user._id, socket.id, 'participant');
-          console.log(`User ${socket.user.username} added as participant to room ${roomId} in database`);
+          logger.verbose(`User ${socket.user.username} added as participant to room ${roomId} in database`);
         } else {
           console.error(`Room ${roomId} not found in database when adding participant`);
         }
@@ -781,7 +832,7 @@ io.on('connection', (socket) => {
         const roomDoc = await Room.findOne({ roomId });
         if (roomDoc) {
           await roomDoc.addParticipant(null, socket.id, 'participant');
-          console.log(`Anonymous user added as participant to room ${roomId} in database`);
+          logger.verbose(`Anonymous user added as participant to room ${roomId} in database`);
         } else {
           console.error(`Room ${roomId} not found in database when adding anonymous participant`);
         }
@@ -801,7 +852,7 @@ io.on('connection', (socket) => {
       await incrementAnonymousRoomUsage(socket);
     }
 
-    console.log(`User ${socket.user ? socket.user.username : socket.id} joined room ${roomId}`);
+    logger.verbose(`User ${socket.user ? socket.user.username : socket.id} joined room ${roomId}`);
 
     // Send detailed success response
     callback({
@@ -827,18 +878,18 @@ io.on('connection', (socket) => {
     }
 
     try {
-      console.log(`Getting room history for user ${socket.user.username} (ID: ${socket.user._id})`);
+      logger.verbose(`Getting room history for user ${socket.user.username} (ID: ${socket.user._id})`);
 
       // Get rooms directly from Room collection
       const roomsFromDB = await Room.getUserRoomHistory(socket.user._id);
 
-      console.log(`Found ${roomsFromDB.length} rooms in database for user ${socket.user.username}`);
+      logger.verbose(`Found ${roomsFromDB.length} rooms in database for user ${socket.user.username}`);
       roomsFromDB.forEach(room => {
         const historyCount = room.participantHistory ? room.participantHistory.length : 0;
-        console.log(`Room ${room.roomId}: Creator=${room.creator?._id}, Active Participants=${room.participants.length}, History=${historyCount}, Expires=${room.expiresAt}`);
+        logger.verbose(`Room ${room.roomId}: Creator=${room.creator?._id}, Active Participants=${room.participants.length}, History=${historyCount}, Expires=${room.expiresAt}`);
         if (room.participantHistory) {
           room.participantHistory.forEach((p, idx) => {
-            console.log(`  History ${idx}: ${p.user} - Role: ${p.role}`);
+            logger.verbose(`  History ${idx}: ${p.user} - Role: ${p.role}`);
           });
         }
       });
@@ -863,7 +914,7 @@ io.on('connection', (socket) => {
         };
       });
 
-      console.log(`Returning ${validRooms.length} valid rooms for user ${socket.user.username}`);
+      logger.verbose(`Returning ${validRooms.length} valid rooms for user ${socket.user.username}`);
       callback({ success: true, rooms: validRooms });
     } catch (error) {
       console.error('Error getting room history:', error);
@@ -922,7 +973,7 @@ io.on('connection', (socket) => {
         }
 
         rooms.set(roomId, room);
-        console.log(`Room ${roomId} recreated in memory from database with ${roomDoc.participants.length} participants in DB`);
+        logger.verbose(`Room ${roomId} recreated in memory from database with ${roomDoc.participants.length} participants in DB`);
       }      // Add user to room if not already present
       if (!room.participants.includes(socket.id)) {
         room.participants.push(socket.id);
@@ -937,7 +988,7 @@ io.on('connection', (socket) => {
           await roomDoc.addParticipant(socket.user._id, socket.id, userRole);
         });
 
-        console.log(`User ${socket.user.username} rejoined room ${roomId} as ${userRole}`);
+        logger.verbose(`User ${socket.user.username} rejoined room ${roomId} as ${userRole}`);
 
         // If user is the creator, update the memory room info
         if (isCreator) {
@@ -991,10 +1042,10 @@ io.on('connection', (socket) => {
 
   // Delete room (only creator can delete)
   socket.on('delete-room', async ({ roomId }, callback) => {
-    console.log(`Delete room request from ${socket.user ? socket.user.username : 'anonymous'} for room ${roomId}`);
+    logger.verbose(`Delete room request from ${socket.user ? socket.user.username : 'anonymous'} for room ${roomId}`);
 
     if (!socket.user) {
-      console.log('Delete room rejected: User not logged in');
+      logger.verbose('Delete room rejected: User not logged in');
       return callback({ error: 'Must be logged in to delete rooms' });
     }
 
@@ -1002,19 +1053,19 @@ io.on('connection', (socket) => {
       // Get room from database to check creator
       const roomDoc = await Room.findOne({ roomId });
       if (!roomDoc) {
-        console.log(`Delete room rejected: Room ${roomId} not found in database`);
+        logger.verbose(`Delete room rejected: Room ${roomId} not found in database`);
         return callback({ error: 'Room not found' });
       }
 
-      console.log(`Room ${roomId} found. Creator: ${roomDoc.creator}, Requesting user: ${socket.user._id}`);
+      logger.verbose(`Room ${roomId} found. Creator: ${roomDoc.creator}, Requesting user: ${socket.user._id}`);
 
       // Check if user is the creator using the Room model method
       if (!roomDoc.isCreator(socket.user._id)) {
-        console.log(`Delete room rejected: User ${socket.user.username} is not the creator of room ${roomId}`);
+        logger.verbose(`Delete room rejected: User ${socket.user.username} is not the creator of room ${roomId}`);
         return callback({ error: 'Only the room creator can delete the room' });
       }
 
-      console.log(`Delete room authorized for user ${socket.user.username} on room ${roomId}`);
+      logger.verbose(`Delete room authorized for user ${socket.user.username} on room ${roomId}`);
 
       // Notify all participants about room deletion
       io.to(roomId).emit('room-deleted', {
@@ -1027,7 +1078,7 @@ io.on('connection', (socket) => {
 
       // Remove room from database
       await Room.findOneAndDelete({ roomId });
-      console.log(`Room ${roomId} deleted from memory and database by creator ${socket.user.username}`);
+      logger.info(`Room ${roomId} deleted from memory and database by creator ${socket.user.username}`);
 
       callback({ success: true });
     } catch (error) {
@@ -1051,7 +1102,7 @@ io.on('connection', (socket) => {
 
   // Connection status events
   socket.on('connection-ready', ({ roomId }) => {
-    console.log(`User ${socket.user ? socket.user.username : socket.id} reported WebRTC ready in room ${roomId}`);
+    logger.verbose(`User ${socket.user ? socket.user.username : socket.id} reported WebRTC ready in room ${roomId}`);
     socket.to(roomId).emit('peer-connection-ready', {
       userId: socket.id,
       user: socket.user ? socket.user.getPublicProfile() : null
@@ -1059,7 +1110,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('connection-established', ({ roomId }) => {
-    console.log(`Connection established in room ${roomId} by ${socket.user ? socket.user.username : socket.id}`);
+    logger.verbose(`Connection established in room ${roomId} by ${socket.user ? socket.user.username : socket.id}`);
     socket.to(roomId).emit('peer-connected', {
       userId: socket.id,
       user: socket.user ? socket.user.getPublicProfile() : null
@@ -1077,7 +1128,7 @@ io.on('connection', (socket) => {
 
   // Handle disconnection
   socket.on('disconnect', async () => {
-    console.log('User disconnected:', socket.id, socket.user ? `(${socket.user.username})` : '(anonymous)');
+    logger.verbose('User disconnected:', socket.id, socket.user ? `(${socket.user.username})` : '(anonymous)');
 
     // Clean up rooms in memory and database
     for (const [roomId, room] of rooms.entries()) {
@@ -1091,7 +1142,7 @@ io.on('connection', (socket) => {
           const roomDoc = await Room.findOne({ roomId });
           if (roomDoc) {
             await roomDoc.removeParticipant(socket.id);
-            console.log(`Removed ${socket.user ? socket.user.username : 'anonymous'} from room ${roomId} in database`);
+            logger.verbose(`Removed ${socket.user ? socket.user.username : 'anonymous'} from room ${roomId} in database`);
           }
         });
 
@@ -1099,7 +1150,7 @@ io.on('connection', (socket) => {
         if (room.participants.length === 0) {
           rooms.delete(roomId);
           // Don't delete from database immediately - let TTL handle it or creator delete it
-          console.log(`Room ${roomId} removed from memory (empty)`);
+          logger.verbose(`Room ${roomId} removed from memory (empty)`);
         }
       }
     }
@@ -1107,6 +1158,6 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Access the app at http://localhost:${PORT}`);
+  logger.essential(`Server running on port ${PORT}`);
+  logger.essential(`Access the app at http://localhost:${PORT}`);
 });
