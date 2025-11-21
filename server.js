@@ -123,13 +123,15 @@ app.delete('/api/admin/blocked/:fingerprint', requireAdminAuth, async (req, res)
     const deletedDevice = await AnonymousLimit.findOneAndDelete({ fingerprint });
 
     if (deletedDevice) {
-      logger.info(`🔓 Admin removed rate limit for device: ${fingerprint} (${deletedDevice.metadata?.os}/${deletedDevice.metadata?.browser})`);
+      logger.info(`🔓 Admin removed rate limit for device: ${fingerprint} (${deletedDevice.deviceInfo?.os}/${deletedDevice.deviceInfo?.browser})`);
 
       // Send Discord notification for device unblock
       await discordLogger.logDeviceUnblocked(
         fingerprint,
-        deletedDevice.metadata?.os || 'Unknown',
-        deletedDevice.metadata?.browser || 'Unknown'
+        deletedDevice.deviceInfo?.deviceName || 'Unknown Device',
+        deletedDevice.deviceInfo?.os || 'Unknown',
+        deletedDevice.deviceInfo?.browser || 'Unknown',
+        deletedDevice.type || 'device' // Pass the tracking type
       );
 
       res.json({
@@ -539,15 +541,15 @@ function generateUserFingerprint(socket) {
     .digest('hex').substring(0, 12);
 
   // Debug logging to help identify issues
-  console.log('🔍 Device Fingerprinting Debug:', {
-    deviceName: deviceName,
-    os: `${os} ${osVersion}`,
-    browser: `${browser} ${browserVersion}`,
-    networkIp: ip,
-    deviceId: deviceId,
-    networkFingerprint: networkFingerprint,
-    userAgent: userAgent.substring(0, 80) + '...'
-  });
+  // console.log('🔍 Device Fingerprinting Debug:', {
+  //   deviceName: deviceName,
+  //   os: `${os} ${osVersion}`,
+  //   browser: `${browser} ${browserVersion}`,
+  //   networkIp: ip,
+  //   deviceId: deviceId,
+  //   networkFingerprint: networkFingerprint,
+  //   userAgent: userAgent.substring(0, 80) + '...'
+  // });
 
   return {
     deviceId: deviceId,
@@ -612,13 +614,13 @@ async function checkAnonymousRoomLimit(socket) {
     const deviceCount = deviceLimitData ? deviceLimitData.count : 0;
     const networkCount = networkLimitData ? networkLimitData.count : 0;
 
-    console.log('🚨 Limit Check:', {
-      deviceId: fingerprints.deviceId,
-      deviceCount: deviceCount,
-      networkIp: fingerprints.ip,
-      networkCount: networkCount,
-      limit: DAILY_ROOM_LIMIT
-    });
+    // console.log('🚨 Limit Check:', {
+    //   deviceId: fingerprints.deviceId,
+    //   deviceCount: deviceCount,
+    //   networkIp: fingerprints.ip,
+    //   networkCount: networkCount,
+    //   limit: DAILY_ROOM_LIMIT
+    // });
 
     // Block if EITHER device ID OR network IP has reached limit
     if (deviceCount >= DAILY_ROOM_LIMIT || networkCount >= DAILY_ROOM_LIMIT) {
@@ -629,6 +631,7 @@ async function checkAnonymousRoomLimit(socket) {
       await discordLogger.logRateLimit(
         fingerprints.deviceId,
         fingerprints.ip,
+        fingerprints.deviceInfo.deviceName,
         fingerprints.deviceInfo.os,
         fingerprints.deviceInfo.browser,
         Math.max(deviceCount, networkCount),
@@ -747,17 +750,18 @@ async function incrementAnonymousRoomUsage(socket) {
     const deviceRemaining = DAILY_ROOM_LIMIT - deviceLimitData.count;
     const networkRemaining = DAILY_ROOM_LIMIT - networkLimitData.count;
 
-    console.log('📊 Usage Updated:', {
-      device: `${deviceLimitData.count}/${DAILY_ROOM_LIMIT} (${deviceRemaining} left)`,
-      network: `${networkLimitData.count}/${DAILY_ROOM_LIMIT} (${networkRemaining} left)`,
-      deviceName: fingerprints.deviceInfo.deviceName,
-      os: fingerprints.deviceInfo.os
-    });
+    // console.log('📊 Usage Updated:', {
+    //   device: `${deviceLimitData.count}/${DAILY_ROOM_LIMIT} (${deviceRemaining} left)`,
+    //   network: `${networkLimitData.count}/${DAILY_ROOM_LIMIT} (${networkRemaining} left)`,
+    //   deviceName: fingerprints.deviceInfo.deviceName,
+    //   os: fingerprints.deviceInfo.os
+    // });
 
     // Log approaching limit
     if (Math.min(deviceRemaining, networkRemaining) <= 1) {
       await discordLogger.logApproachingLimit(
         fingerprints.deviceId,
+        fingerprints.deviceInfo.deviceName,
         fingerprints.deviceInfo.os,
         fingerprints.deviceInfo.browser,
         Math.max(deviceLimitData.count, networkLimitData.count),

@@ -454,10 +454,10 @@
       async function loadData() {
         const container = document.getElementById("blockedDevices");
         container.innerHTML =
-          '<div class="loading">Loading blocked devices...</div>';
+          '<div class="loading">Loading device data...</div>';
 
         try {
-          const response = await fetch("/api/admin/blocked");
+          const response = await fetch("/api/admin/devices");
 
           if (response.status === 401) {
             showLogin();
@@ -467,7 +467,7 @@
           const data = await response.json();
 
           updateStats(data);
-          displayBlockedDevices(data.blockedDevices);
+          displayDeviceData(data);
         } catch (error) {
           console.error("Error loading data:", error);
           container.innerHTML =
@@ -476,68 +476,78 @@
       }
 
       function updateStats(data) {
-        document.getElementById("totalBlocked").textContent = data.totalBlocked;
-        document.getElementById("totalIPs").textContent = data.totalUniqueIPs;
+        document.getElementById("totalBlocked").textContent =
+          data.summary.blockedDevices + data.summary.blockedNetworks;
+        document.getElementById("totalIPs").textContent =
+          data.summary.totalUniqueIPs;
         document.getElementById("totalUsage").textContent =
-          data.totalRoomAttempts;
+          data.summary.totalRoomAttempts;
         document.getElementById("lastUpdate").textContent =
           new Date().toLocaleTimeString();
       }
 
-      function displayBlockedDevices(devices) {
+      function displayDeviceData(data) {
         const container = document.getElementById("blockedDevices");
 
-        if (devices.length === 0) {
+        if (data.devices.length === 0 && data.networks.length === 0) {
           container.innerHTML =
             '<div class="no-data">✅ No device activity detected today!</div>';
           return;
         }
 
-        // Separate blocked and active devices
-        const blockedDevices = devices.filter((device) => device.isBlocked);
-        const activeDevices = devices.filter((device) => !device.isBlocked);
+        // Combine devices and networks for display
+        const allDevices = [...data.devices, ...data.networks];
+
+        // Separate blocked and active entries
+        const blockedEntries = allDevices.filter((entry) => entry.isBlocked);
+        const activeEntries = allDevices.filter((entry) => !entry.isBlocked);
 
         let html = "";
 
-        // Show blocked devices first
-        if (blockedDevices.length > 0) {
+        // Show blocked entries first
+        if (blockedEntries.length > 0) {
           html +=
-            '<h3 style="color: #dc3545; margin: 20px 0 10px 0;">🚫 Blocked Devices (Reached Limit)</h3>';
-          html += blockedDevices
-            .map((device) => generateDeviceCard(device, true))
+            '<h3 style="color: #dc3545; margin: 20px 0 10px 0;">🚫 Blocked Devices & Networks (Reached Limit)</h3>';
+          html += blockedEntries
+            .map((entry) => generateEnhancedDeviceCard(entry, true))
             .join("");
         }
 
-        // Show active devices
-        if (activeDevices.length > 0) {
+        // Show active entries
+        if (activeEntries.length > 0) {
           html +=
-            '<h3 style="color: #28a745; margin: 20px 0 10px 0;">📱 Active Devices (Under Limit)</h3>';
-          html += activeDevices
-            .map((device) => generateDeviceCard(device, false))
+            '<h3 style="color: #28a745; margin: 20px 0 10px 0;">📱 Active Devices & Networks (Under Limit)</h3>';
+          html += activeEntries
+            .map((entry) => generateEnhancedDeviceCard(entry, false))
             .join("");
         }
 
         container.innerHTML = html;
       }
 
-      function generateDeviceCard(device, isBlocked) {
+      function generateEnhancedDeviceCard(entry, isBlocked) {
         const badgeColor = isBlocked ? "#dc3545" : "#28a745";
         const statusText = isBlocked ? "BLOCKED" : "ACTIVE";
+        const typeIcon = entry.type === "device" ? "📱" : "🌐";
+        const typeText = entry.type === "device" ? "Device" : "Network";
 
         return `
                 <div class="device-card">
                     <div class="device-header">
-                        <div class="fingerprint">${device.fingerprint}</div>
+                        <div class="fingerprint">${typeIcon} ${typeText}: ${entry.fingerprint.substring(
+          0,
+          12
+        )}...</div>
                         <div class="device-actions">
                             <div class="usage-badge" style="background: ${badgeColor}">
-                                ${device.count}/${
-          device.limit
+                                ${entry.count}/${
+          entry.limit
         } rooms (${statusText})
                             </div>
                             ${
                               isBlocked
                                 ? `
-                            <button class="remove-btn" onclick="removeBlockedDevice('${device.fingerprint}')" title="Unblock this device">
+                            <button class="remove-btn" onclick="removeBlockedDevice('${entry.fingerprint}')" title="Unblock this ${entry.type}">
                                 🔓 Unblock
                             </button>
                             `
@@ -548,9 +558,39 @@
                     
                     <div class="device-info">
                         <div class="info-item">
-                            <div class="info-label">IP Addresses</div>
+                            <div class="info-label">Device Name</div>
+                            <div class="info-value">${
+                              entry.deviceInfo.deviceName
+                            }</div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">Operating System</div>
+                            <div class="info-value">${entry.deviceInfo.os} ${
+          entry.deviceInfo.osVersion
+        }</div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">Browser</div>
+                            <div class="info-value">${
+                              entry.deviceInfo.browser
+                            } ${entry.deviceInfo.browserVersion}</div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">Network IP</div>
                             <div class="info-value ip-list">
-                                ${device.ips
+                                <span class="ip-tag">${
+                                  entry.deviceInfo.networkIp
+                                }</span>
+                            </div>
+                        </div>
+                        
+                        <div class="info-item">
+                            <div class="info-label">All IPs Used</div>
+                            <div class="info-value ip-list">
+                                ${entry.ips
                                   .map(
                                     (ip) => `<span class="ip-tag">${ip}</span>`
                                   )
@@ -559,50 +599,40 @@
                         </div>
                         
                         <div class="info-item">
-                            <div class="info-label">Device Info</div>
-                            <div class="info-value">${device.metadata.os} / ${
-          device.metadata.browser
-        }
-                                ${
-                                  device.metadata.browserHistory &&
-                                  device.metadata.browserHistory.length > 1
-                                    ? `<br><small style="color: #6c757d;">Browser History: ${device.metadata.browserHistory.join(
-                                        " → "
-                                      )}</small>`
-                                    : ""
-                                }
-                            </div>
-                        </div>
-                        
-                        <div class="info-item">
-                            <div class="info-label">Network</div>
-                            <div class="info-value">${
-                              device.metadata.network
-                            }</div>
-                        </div>
-                        
-                        <div class="info-item">
                             <div class="info-label">Language</div>
                             <div class="info-value">${
-                              device.metadata.language
+                              entry.deviceInfo.language
                             }</div>
                         </div>
                         
                         <div class="info-item">
-                            <div class="info-label">User Agent</div>
-                            <div class="info-value" style="font-size: 0.8em; word-break: break-all;">
-                                ${device.metadata.userAgent}
-                            </div>
+                            <div class="info-label">Last Seen</div>
+                            <div class="info-value">${new Date(
+                              entry.deviceInfo.lastSeen
+                            ).toLocaleString()}</div>
                         </div>
                         
                         <div class="info-item">
-                            <div class="info-label">Related Fingerprints</div>
+                            <div class="info-label">Type</div>
                             <div class="info-value">${
-                              device.metadata.relatedFingerprints
-                                ? device.metadata.relatedFingerprints.length
-                                : 0
-                            } detected</div>
+                              entry.type === "device"
+                                ? "Device Tracking"
+                                : "Network Tracking"
+                            }</div>
                         </div>
+                        
+                        ${
+                          entry.type === "device"
+                            ? `
+                        <div class="info-item">
+                            <div class="info-label">Device ID</div>
+                            <div class="info-value" style="font-size: 0.8em; word-break: break-all;">
+                                ${entry.fingerprint}
+                            </div>
+                        </div>
+                        `
+                            : ""
+                        }
                     </div>
                 </div>
             `;

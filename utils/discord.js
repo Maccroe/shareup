@@ -37,15 +37,16 @@ class DiscordLogger {
     switch (type) {
       case 'rate_limit_reached':
         return {
-          title: '🚫 Rate Limit Reached',
+          title: '🚫 Device/Network Limit Reached',
           color: 0xFF0000, // Red
           fields: [
-            { name: '👤 Fingerprint', value: `\`${data.fingerprint}\``, inline: true },
-            { name: '🌐 IP Address', value: `\`${data.ip}\``, inline: true },
-            { name: '💻 Device', value: `${data.os}/${data.browser}`, inline: true },
+            { name: '📱 Device', value: `${data.deviceName || 'Unknown Device'}`, inline: true },
+            { name: '🔑 Fingerprint', value: `\`${data.fingerprint.substring(0, 12)}...\``, inline: true },
+            { name: '🌍 IP Address', value: `\`${data.ip}\``, inline: true },
+            { name: '💻 OS & Browser', value: `${data.os} \u2022 ${data.browser}`, inline: true },
             { name: '📊 Usage', value: `${data.usage}/${data.limit} rooms`, inline: true },
-            { name: '🔗 Related Fingerprints', value: data.relatedFingerprints.toString(), inline: true },
-            { name: '🌍 Network', value: `\`${data.network}\``, inline: true }
+            { name: '🚫 Blocked By', value: `${data.relatedFingerprints}`, inline: true },
+            { name: '🌐 Network ID', value: `\`${data.network.substring(0, 8)}...\``, inline: true }
           ],
           footer: {
             text: 'ShareUp Rate Limiting System'
@@ -58,8 +59,9 @@ class DiscordLogger {
           title: '⚠️ Approaching Rate Limit',
           color: 0xFF8C00, // Orange
           fields: [
-            { name: '👤 Fingerprint', value: `\`${data.fingerprint}\``, inline: true },
-            { name: '💻 Device', value: `${data.os}/${data.browser}`, inline: true },
+            { name: '📱 Device', value: `${data.deviceName || 'Unknown Device'}`, inline: true },
+            { name: '🔑 Fingerprint', value: `\`${data.fingerprint.substring(0, 12)}...\``, inline: true },
+            { name: '💻 OS & Browser', value: `${data.os} \u2022 ${data.browser}`, inline: true },
             { name: '📊 Usage', value: `${data.usage}/${data.limit} rooms`, inline: true },
             { name: '⏳ Remaining', value: `${data.remaining} rooms left`, inline: true },
             { name: '🔄 Browser History', value: data.browserHistory ? data.browserHistory.join(' → ') : data.browser, inline: false }
@@ -92,8 +94,10 @@ class DiscordLogger {
           title: '🔓 Device Unblocked by Admin',
           color: 0x00FF00, // Green
           fields: [
-            { name: '👤 Fingerprint', value: `\`${data.fingerprint}\``, inline: true },
-            { name: '💻 Device', value: `${data.os}/${data.browser}`, inline: true },
+            { name: '📱 Device', value: `${data.deviceName || 'Unknown Device'}`, inline: true },
+            { name: '🔑 Fingerprint', value: `\`${data.fingerprint.substring(0, 12)}...\``, inline: true },
+            { name: '💻 OS & Browser', value: `${data.os} \u2022 ${data.browser}`, inline: true },
+            { name: '🔄 Tracking Type', value: data.trackingType === 'device' ? '📱 Device ID Tracking' : '🌐 Network IP Tracking', inline: true },
             { name: '🛡️ Admin Action', value: 'Rate limit manually removed', inline: false }
           ],
           footer: {
@@ -113,15 +117,15 @@ class DiscordLogger {
   }
 
   // Quick methods for specific log types
-  async logRateLimit(fingerprint, ip, os, browser, usage, limit, network, relatedFingerprints) {
+  async logRateLimit(fingerprint, ip, deviceName, os, browser, usage, limit, network, relatedFingerprints) {
     return await this.sendLog('rate_limit_reached', {
-      fingerprint, ip, os, browser, usage, limit, network, relatedFingerprints
+      fingerprint, ip, deviceName, os, browser, usage, limit, network, relatedFingerprints
     });
   }
 
-  async logApproachingLimit(fingerprint, os, browser, usage, limit, remaining, browserHistory) {
+  async logApproachingLimit(fingerprint, deviceName, os, browser, usage, limit, remaining, browserHistory) {
     return await this.sendLog('approaching_limit', {
-      fingerprint, os, browser, usage, limit, remaining, browserHistory
+      fingerprint, deviceName, os, browser, usage, limit, remaining, browserHistory
     });
   }
 
@@ -131,9 +135,9 @@ class DiscordLogger {
     });
   }
 
-  async logDeviceUnblocked(fingerprint, os, browser) {
+  async logDeviceUnblocked(fingerprint, deviceName, os, browser, trackingType) {
     return await this.sendLog('device_unblocked', {
-      fingerprint, os, browser
+      fingerprint, deviceName, os, browser, trackingType
     });
   }
 }
