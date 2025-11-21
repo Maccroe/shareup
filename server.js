@@ -217,6 +217,82 @@ app.get('/api/admin/blocked', requireAdminAuth, async (req, res) => {
   }
 });
 
+// New enhanced admin endpoint for device and network tracking
+app.get('/api/admin/devices', requireAdminAuth, async (req, res) => {
+  try {
+    const today = new Date().toDateString();
+
+    // Get all device and network entries for today
+    const allEntries = await AnonymousLimit.find({
+      date: today
+    }).sort({ 'deviceInfo.lastSeen': -1, count: -1 });
+
+    // Separate device and network entries
+    const deviceEntries = allEntries.filter(entry => entry.type === 'device');
+    const networkEntries = allEntries.filter(entry => entry.type === 'network');
+
+    // Calculate statistics
+    const uniqueDevices = deviceEntries.length;
+    const uniqueNetworks = networkEntries.length;
+    const blockedDevices = deviceEntries.filter(entry => entry.count >= DAILY_ROOM_LIMIT);
+    const blockedNetworks = networkEntries.filter(entry => entry.count >= DAILY_ROOM_LIMIT);
+
+    let totalRoomAttempts = 0;
+    const uniqueIPs = new Set();
+
+    allEntries.forEach(entry => {
+      totalRoomAttempts += entry.count;
+      entry.ips.forEach(ip => uniqueIPs.add(ip));
+    });
+
+    // Format device data for admin dashboard
+    const formatDeviceEntry = (entry) => ({
+      id: entry._id,
+      fingerprint: entry.fingerprint,
+      type: entry.type,
+      count: entry.count,
+      limit: DAILY_ROOM_LIMIT,
+      isBlocked: entry.count >= DAILY_ROOM_LIMIT,
+      deviceInfo: {
+        deviceName: entry.deviceInfo?.deviceName || 'Unknown Device',
+        os: entry.deviceInfo?.os || 'Unknown',
+        osVersion: entry.deviceInfo?.osVersion || 'Unknown',
+        browser: entry.deviceInfo?.browser || 'Unknown',
+        browserVersion: entry.deviceInfo?.browserVersion || 'Unknown',
+        networkIp: entry.deviceInfo?.networkIp || 'Unknown',
+        language: entry.deviceInfo?.language || 'Unknown',
+        lastSeen: entry.deviceInfo?.lastSeen || entry.updatedAt
+      },
+      ips: entry.ips || [],
+      relatedIds: entry.relatedIds || {},
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt
+    });
+
+    res.json({
+      success: true,
+      summary: {
+        totalDevices: uniqueDevices,
+        totalNetworks: uniqueNetworks,
+        blockedDevices: blockedDevices.length,
+        blockedNetworks: blockedNetworks.length,
+        totalUniqueIPs: uniqueIPs.size,
+        totalRoomAttempts: totalRoomAttempts,
+        lastUpdate: new Date().toISOString()
+      },
+      devices: deviceEntries.map(formatDeviceEntry),
+      networks: networkEntries.map(formatDeviceEntry)
+    });
+  } catch (error) {
+    console.error('Error fetching device data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch device data',
+      message: error.message
+    });
+  }
+});
+
 // MongoDB Connection with retry logic
 const connectDB = async () => {
   try {
@@ -327,7 +403,7 @@ setInterval(async () => {
 
 const DAILY_ROOM_LIMIT = 5;
 
-// Enhanced user fingerprinting for anonymous limit tracking
+// Enhanced user fingerprinting with device ID and network IP tracking
 function generateUserFingerprint(socket) {
   // Get real client IP with better detection
   let ip = socket.handshake.headers['x-forwarded-for'] ||
@@ -361,66 +437,135 @@ function generateUserFingerprint(socket) {
   const referer = socket.handshake.headers['referer'] || 'unknown';
   const origin = socket.handshake.headers['origin'] || 'unknown';
 
-  // Extract more specific browser/device info from User-Agent with better mobile detection
+  // Extract detailed device information from User-Agent
   const uaLower = userAgent.toLowerCase();
 
-  // Better OS detection - prioritize mobile OS detection
+  // Extract device name and OS version
+  let deviceName = 'Unknown Device';
   let os = 'unknown';
-  if (uaLower.includes('iphone') || uaLower.includes('ios')) {
-    os = 'iphone';
-  } else if (uaLower.includes('ipad')) {
-    os = 'ipad';
-  } else if (uaLower.includes('android')) {
-    os = 'android';
-  } else if (uaLower.includes('windows')) {
-    os = 'windows';
-  } else if (uaLower.includes('mac') && !uaLower.includes('iphone') && !uaLower.includes('ipad')) {
-    os = 'mac';
-  } else if (uaLower.includes('linux')) {
-    os = 'linux';
+  let osVersion = 'unknown';
+  let browserVersion = 'unknown';
+
+  // iPhone detection with model
+  if (uaLower.includes('iphone')) {
+    os = 'iOS';
+    const iosMatch = userAgent.match(/OS\s([\d_]+)/);
+    osVersion = iosMatch ? iosMatch[1].replace(/_/g, '.') : 'unknown';
+    deviceName = 'iPhone';
+    // Try to get iPhone model
+    if (uaLower.includes('iphone14')) deviceName = 'iPhone 14';
+    else if (uaLower.includes('iphone13')) deviceName = 'iPhone 13';
+    else if (uaLower.includes('iphone12')) deviceName = 'iPhone 12';
+    else if (uaLower.includes('iphonese')) deviceName = 'iPhone SE';
+  }
+  // iPad detection
+  else if (uaLower.includes('ipad')) {
+    os = 'iPadOS';
+    const iosMatch = userAgent.match(/OS\s([\d_]+)/);
+    osVersion = iosMatch ? iosMatch[1].replace(/_/g, '.') : 'unknown';
+    deviceName = 'iPad';
+  }
+  // Android detection with device model
+  else if (uaLower.includes('android')) {
+    os = 'Android';
+    const androidMatch = userAgent.match(/Android\s([\d\.]+)/);
+    osVersion = androidMatch ? androidMatch[1] : 'unknown';
+
+    // Extract device model
+    const deviceMatch = userAgent.match(/\(([^;]+);\s*([^)]+)\)/);
+    if (deviceMatch && deviceMatch[2]) {
+      deviceName = deviceMatch[2].trim();
+    } else {
+      deviceName = 'Android Device';
+    }
+
+    // Common Android device patterns
+    if (uaLower.includes('samsung')) deviceName = deviceName.includes('Samsung') ? deviceName : 'Samsung ' + deviceName;
+    else if (uaLower.includes('pixel')) deviceName = 'Google Pixel';
+    else if (uaLower.includes('oneplus')) deviceName = 'OnePlus Device';
+  }
+  // Windows detection
+  else if (uaLower.includes('windows')) {
+    os = 'Windows';
+    const winMatch = userAgent.match(/Windows NT\s([\d\.]+)/);
+    osVersion = winMatch ? winMatch[1] : 'unknown';
+    deviceName = 'Windows PC';
+  }
+  // Mac detection
+  else if (uaLower.includes('mac') && !uaLower.includes('iphone') && !uaLower.includes('ipad')) {
+    os = 'macOS';
+    const macMatch = userAgent.match(/Mac OS X\s([\d_]+)/);
+    osVersion = macMatch ? macMatch[1].replace(/_/g, '.') : 'unknown';
+    deviceName = 'Mac';
+  }
+  // Linux detection
+  else if (uaLower.includes('linux')) {
+    os = 'Linux';
+    deviceName = 'Linux PC';
   }
 
-  const browserPattern = /(chrome|firefox|safari|edge|opera)/i;
-  const browser = (uaLower.match(browserPattern) || ['unknown'])[0];
+  // Extract browser info
+  let browser = 'unknown';
+  if (uaLower.includes('chrome')) {
+    browser = 'Chrome';
+    const chromeMatch = userAgent.match(/Chrome\/([\d\.]+)/);
+    browserVersion = chromeMatch ? chromeMatch[1] : 'unknown';
+  } else if (uaLower.includes('firefox')) {
+    browser = 'Firefox';
+    const firefoxMatch = userAgent.match(/Firefox\/([\d\.]+)/);
+    browserVersion = firefoxMatch ? firefoxMatch[1] : 'unknown';
+  } else if (uaLower.includes('safari')) {
+    browser = 'Safari';
+    const safariMatch = userAgent.match(/Version\/([\d\.]+)/);
+    browserVersion = safariMatch ? safariMatch[1] : 'unknown';
+  } else if (uaLower.includes('edge')) {
+    browser = 'Edge';
+    const edgeMatch = userAgent.match(/Edge\/([\d\.]+)/);
+    browserVersion = edgeMatch ? edgeMatch[1] : 'unknown';
+  }
 
-  // Create multiple fingerprint layers
+  // Create device-specific fingerprints
   const crypto = require('crypto');
 
-  // Primary fingerprint - now includes IP + OS + UserAgent for unique device identification
-  // This ensures different devices (iPhone vs Android) with different IPs are truly separate
-  const primaryFingerprint = crypto.createHash('sha256')
-    .update(ip + os + userAgent + acceptLanguage)
+  // Device ID - unique identifier for this device (IMEI substitute)
+  // Uses hardware/software characteristics that don't change with network
+  const deviceId = crypto.createHash('sha256')
+    .update(os + deviceName + userAgent + acceptLanguage + acceptEncoding)
     .digest('hex').substring(0, 16);
 
-  // Secondary fingerprint (network-based) - only for same network detection
+  // Network fingerprint - changes with network/location
   const networkFingerprint = crypto.createHash('sha256')
     .update(ip + origin + referer)
     .digest('hex').substring(0, 12);
 
-  // Device fingerprint (browser/OS/hardware specific) - includes more unique device characteristics
-  const deviceFingerprint = crypto.createHash('sha256')
-    .update(os + browser + userAgent + acceptLanguage + acceptEncoding)
-    .digest('hex').substring(0, 12);
-
   // Debug logging to help identify issues
   console.log('🔍 Device Fingerprinting Debug:', {
-    ip: ip,
-    os: os,
-    browser: browser,
-    userAgent: userAgent.substring(0, 50) + '...',
-    primaryFingerprint: primaryFingerprint,
+    deviceName: deviceName,
+    os: `${os} ${osVersion}`,
+    browser: `${browser} ${browserVersion}`,
+    networkIp: ip,
+    deviceId: deviceId,
     networkFingerprint: networkFingerprint,
-    deviceFingerprint: deviceFingerprint
+    userAgent: userAgent.substring(0, 80) + '...'
   });
 
   return {
-    primary: primaryFingerprint,
-    network: networkFingerprint,
-    device: deviceFingerprint,
+    deviceId: deviceId,
+    networkFingerprint: networkFingerprint,
+    deviceInfo: {
+      deviceId: deviceId,
+      deviceName: deviceName,
+      networkIp: ip,
+      os: os,
+      osVersion: osVersion,
+      browser: browser,
+      browserVersion: browserVersion,
+      language: acceptLanguage,
+      userAgent: userAgent,
+      lastSeen: new Date()
+    },
     ip: ip,
     userAgent: userAgent,
-    os: os,
-    browser: browser,
     language: acceptLanguage
   };
 }
@@ -443,184 +588,74 @@ function getTimeUntilReset() {
 }
 
 // Check if anonymous user can create/join room with enhanced bypass protection
+// Check if anonymous user can create/join room with device ID and network IP tracking
 async function checkAnonymousRoomLimit(socket) {
   const fingerprints = generateUserFingerprint(socket);
   const today = new Date().toDateString();
 
   try {
-    // Check all fingerprint variations to detect bypass attempts
-    const [primaryData, networkMatches, deviceMatches] = await Promise.all([
-      AnonymousLimit.findOne({ fingerprint: fingerprints.primary }),
-      AnonymousLimit.find({
-        date: today,
-        $or: [
-          { 'metadata.network': fingerprints.network },
-          // Only match same IP if it's the exact same network fingerprint (same origin/referer)
-          {
-            'ips': fingerprints.ip,
-            'metadata.network': fingerprints.network
-          }
-        ]
+    // Check both device ID and network IP separately
+    const [deviceLimitData, networkLimitData] = await Promise.all([
+      AnonymousLimit.findOne({
+        fingerprint: fingerprints.deviceId,
+        type: 'device',
+        date: today
       }),
-      AnonymousLimit.find({
-        date: today,
-        $or: [
-          { 'metadata.device': fingerprints.device },
-          // Much more strict device matching - require exact same device fingerprint
-          // Remove the loose OS+IP matching that was causing false positives
-          {
-            'metadata.os': fingerprints.os,
-            'metadata.browser': fingerprints.browser,
-            'metadata.userAgent': fingerprints.userAgent,
-            'ips': fingerprints.ip
-          }
-        ]
+      AnonymousLimit.findOne({
+        fingerprint: fingerprints.networkFingerprint,
+        type: 'network',
+        date: today
       })
     ]);
 
-    // Calculate total usage across all related fingerprints
-    const relatedFingerprints = new Set();
-    let totalUsage = 0;
+    // Check if either device ID or network IP has reached the limit
+    const deviceCount = deviceLimitData ? deviceLimitData.count : 0;
+    const networkCount = networkLimitData ? networkLimitData.count : 0;
 
-    if (primaryData) {
-      relatedFingerprints.add(primaryData.fingerprint);
-      totalUsage += primaryData.count;
-    }
-
-    // Add usage from network matches (same network fingerprint only)
-    networkMatches.forEach(match => {
-      if (!relatedFingerprints.has(match.fingerprint)) {
-        relatedFingerprints.add(match.fingerprint);
-        totalUsage += match.count;
-      }
+    console.log('🚨 Limit Check:', {
+      deviceId: fingerprints.deviceId,
+      deviceCount: deviceCount,
+      networkIp: fingerprints.ip,
+      networkCount: networkCount,
+      limit: DAILY_ROOM_LIMIT
     });
 
-    // Add usage from device matches (strict device fingerprint matching)
-    deviceMatches.forEach(match => {
-      if (!relatedFingerprints.has(match.fingerprint)) {
-        relatedFingerprints.add(match.fingerprint);
-        totalUsage += match.count;
-      }
-    });
-
-    // Create or update primary fingerprint data
-    let limitData = primaryData;
-
-    // If no primary data exists, check if there's an existing record for this exact device
-    if (!limitData && relatedFingerprints.size > 0) {
-      // Find the most recent record for this specific device (stricter matching)
-      const existingRecord = networkMatches.find(match =>
-        match.ips.includes(fingerprints.ip) &&
-        match.metadata?.network === fingerprints.network
-      ) || deviceMatches.find(match =>
-        match.ips.includes(fingerprints.ip) &&
-        match.metadata?.device === fingerprints.device
-      );
-
-      if (existingRecord) {
-        // Update the existing record to use the new fingerprint
-        const fromBrowser = existingRecord.metadata?.browser || 'unknown';
-        await discordLogger.logBrowserSwitch(
-          fingerprints.primary,
-          fingerprints.ip,
-          fingerprints.os,
-          fromBrowser,
-          fingerprints.browser,
-          existingRecord.count,
-          DAILY_ROOM_LIMIT
-        );
-        limitData = existingRecord;
-        limitData.fingerprint = fingerprints.primary; // Update to new browser fingerprint
-      }
-    }
-
-    if (!limitData) {
-      limitData = new AnonymousLimit({
-        fingerprint: fingerprints.primary,
-        count: 0,
-        date: today,
-        ips: [fingerprints.ip],
-        metadata: {
-          network: fingerprints.network,
-          device: fingerprints.device,
-          os: fingerprints.os,
-          browser: fingerprints.browser,
-          language: fingerprints.language,
-          userAgent: fingerprints.userAgent,
-          relatedFingerprints: Array.from(relatedFingerprints),
-          browserHistory: [fingerprints.browser] // Track browser switches
-        }
-      });
-    } else {
-      // Update existing data
-      if (limitData.date !== today) {
-        limitData.count = 0;
-        limitData.date = today;
-        limitData.ips = [fingerprints.ip];
-        totalUsage = 0; // Reset for new day
-      } else {
-        // Add current IP if not already present
-        if (!limitData.ips.includes(fingerprints.ip)) {
-          limitData.ips.push(fingerprints.ip);
-        }
-      }
-
-      // Track browser history for the same user
-      const browserHistory = limitData.metadata?.browserHistory || [limitData.metadata?.browser];
-      if (!browserHistory.includes(fingerprints.browser)) {
-        browserHistory.push(fingerprints.browser);
-        // Browser switch tracking moved to Discord logging above
-      }
-
-      // Update metadata with latest info
-      limitData.metadata = {
-        ...limitData.metadata,
-        network: fingerprints.network,
-        device: fingerprints.device,
-        os: fingerprints.os,
-        browser: fingerprints.browser,
-        language: fingerprints.language,
-        userAgent: fingerprints.userAgent,
-        relatedFingerprints: Array.from(relatedFingerprints),
-        browserHistory: browserHistory
-      };
-    }
-
-    await limitData.save();
-
-    // Use the higher of individual count or total related usage
-    const effectiveUsage = Math.max(limitData.count, totalUsage);
-
-    // Check limit against effective usage
-    if (effectiveUsage >= DAILY_ROOM_LIMIT) {
+    // Block if EITHER device ID OR network IP has reached limit
+    if (deviceCount >= DAILY_ROOM_LIMIT || networkCount >= DAILY_ROOM_LIMIT) {
       const resetInfo = getTimeUntilReset();
+      const blockedBy = deviceCount >= DAILY_ROOM_LIMIT ? 'device' : 'network';
 
-      // Send to Discord instead of console logging
+      // Send to Discord
       await discordLogger.logRateLimit(
-        fingerprints.primary,
+        fingerprints.deviceId,
         fingerprints.ip,
-        fingerprints.os,
-        fingerprints.browser,
-        effectiveUsage,
+        fingerprints.deviceInfo.os,
+        fingerprints.deviceInfo.browser,
+        Math.max(deviceCount, networkCount),
         DAILY_ROOM_LIMIT,
-        fingerprints.network,
-        relatedFingerprints.size
+        fingerprints.networkFingerprint,
+        blockedBy
       );
 
       return {
         allowed: false,
         remaining: 0,
         resetTime: resetInfo,
-        message: `Daily limit reached. Anonymous users can only create/join ${DAILY_ROOM_LIMIT} rooms per day. Login for unlimited access.`
+        message: `Daily limit reached. This ${blockedBy} has already created/joined ${DAILY_ROOM_LIMIT} rooms today. Login for unlimited access.`
       };
     }
 
+    const remainingForDevice = DAILY_ROOM_LIMIT - deviceCount;
+    const remainingForNetwork = DAILY_ROOM_LIMIT - networkCount;
+    const actualRemaining = Math.min(remainingForDevice, remainingForNetwork);
+
     return {
       allowed: true,
-      remaining: DAILY_ROOM_LIMIT - effectiveUsage,
+      remaining: actualRemaining,
       resetTime: getTimeUntilReset(),
       message: null
     };
+
   } catch (error) {
     console.error('Error checking room limit:', error);
     // Fallback to allow if database error
@@ -633,33 +668,105 @@ async function checkAnonymousRoomLimit(socket) {
   }
 }
 
-// Increment room usage for anonymous user
+// Increment room usage for anonymous user (both device and network)
 async function incrementAnonymousRoomUsage(socket) {
   const fingerprints = generateUserFingerprint(socket);
+  const today = new Date().toDateString();
 
   try {
-    const limitData = await AnonymousLimit.findOne({ fingerprint: fingerprints.primary });
-    if (limitData) {
-      limitData.count++;
-      await limitData.save();
+    // Update or create device limit record
+    let deviceLimitData = await AnonymousLimit.findOne({
+      fingerprint: fingerprints.deviceId,
+      type: 'device',
+      date: today
+    });
 
-      const remaining = DAILY_ROOM_LIMIT - limitData.count;
-
-      if (remaining <= 1) {
-        await discordLogger.logApproachingLimit(
-          fingerprints.primary,
-          fingerprints.os,
-          fingerprints.browser,
-          limitData.count,
-          DAILY_ROOM_LIMIT,
-          remaining,
-          limitData.metadata?.browserHistory
-        );
-      }
-
-      // Keep minimal terminal logging for development
-      logger.verbose(`Anonymous user ${fingerprints.primary} used ${limitData.count}/${DAILY_ROOM_LIMIT} daily rooms (${fingerprints.os}/${fingerprints.browser})`);
+    if (!deviceLimitData) {
+      deviceLimitData = new AnonymousLimit({
+        fingerprint: fingerprints.deviceId,
+        type: 'device',
+        count: 0,
+        date: today,
+        ips: [fingerprints.ip],
+        deviceInfo: fingerprints.deviceInfo,
+        relatedIds: {
+          deviceFingerprints: [fingerprints.deviceId],
+          networkFingerprints: [fingerprints.networkFingerprint],
+          ipHistory: [fingerprints.ip]
+        }
+      });
     }
+
+    // Update or create network limit record
+    let networkLimitData = await AnonymousLimit.findOne({
+      fingerprint: fingerprints.networkFingerprint,
+      type: 'network',
+      date: today
+    });
+
+    if (!networkLimitData) {
+      networkLimitData = new AnonymousLimit({
+        fingerprint: fingerprints.networkFingerprint,
+        type: 'network',
+        count: 0,
+        date: today,
+        ips: [fingerprints.ip],
+        deviceInfo: fingerprints.deviceInfo,
+        relatedIds: {
+          deviceFingerprints: [fingerprints.deviceId],
+          networkFingerprints: [fingerprints.networkFingerprint],
+          ipHistory: [fingerprints.ip]
+        }
+      });
+    }
+
+    // Increment both counters
+    deviceLimitData.count++;
+    networkLimitData.count++;
+
+    // Update device info and IP history
+    deviceLimitData.deviceInfo = fingerprints.deviceInfo;
+    networkLimitData.deviceInfo = fingerprints.deviceInfo;
+
+    if (!deviceLimitData.ips.includes(fingerprints.ip)) {
+      deviceLimitData.ips.push(fingerprints.ip);
+      deviceLimitData.relatedIds.ipHistory.push(fingerprints.ip);
+    }
+
+    if (!networkLimitData.ips.includes(fingerprints.ip)) {
+      networkLimitData.ips.push(fingerprints.ip);
+      networkLimitData.relatedIds.ipHistory.push(fingerprints.ip);
+    }
+
+    // Save both records
+    await Promise.all([
+      deviceLimitData.save(),
+      networkLimitData.save()
+    ]);
+
+    const deviceRemaining = DAILY_ROOM_LIMIT - deviceLimitData.count;
+    const networkRemaining = DAILY_ROOM_LIMIT - networkLimitData.count;
+
+    console.log('📊 Usage Updated:', {
+      device: `${deviceLimitData.count}/${DAILY_ROOM_LIMIT} (${deviceRemaining} left)`,
+      network: `${networkLimitData.count}/${DAILY_ROOM_LIMIT} (${networkRemaining} left)`,
+      deviceName: fingerprints.deviceInfo.deviceName,
+      os: fingerprints.deviceInfo.os
+    });
+
+    // Log approaching limit
+    if (Math.min(deviceRemaining, networkRemaining) <= 1) {
+      await discordLogger.logApproachingLimit(
+        fingerprints.deviceId,
+        fingerprints.deviceInfo.os,
+        fingerprints.deviceInfo.browser,
+        Math.max(deviceLimitData.count, networkLimitData.count),
+        DAILY_ROOM_LIMIT,
+        Math.min(deviceRemaining, networkRemaining),
+        [fingerprints.deviceInfo.browser]
+      );
+    }
+
   } catch (error) {
     console.error('Error incrementing room usage:', error);
   }
