@@ -814,6 +814,7 @@ body.logged-in .anonymous-bulk-info {
   max-width: 400px;
   width: 100%;
   text-align: center;
+  margin: 20px 0; /* Add vertical margin */
 }
 
 .modal-content h3 {
@@ -1505,12 +1506,18 @@ body.logged-in .anonymous-bulk-info {
 
 /* Mobile responsive styles for room limit modal */
 @media (max-width: 768px) {
+  .modal {
+    padding: 15px;
+    align-items: center; /* Ensure proper centering */
+  }
+
   #room-limit-modal .modal-content {
-    max-width: 95vw;
-    width: 95vw;
-    max-height: 95vh;
+    max-width: calc(100vw - 30px);
+    width: calc(100vw - 30px);
+    max-height: calc(100vh - 60px); /* Account for top/bottom spacing */
     padding: 20px 15px;
-    margin: 10px;
+    margin: 15px 0;
+    overflow-y: auto;
   }
 
   .limit-icon {
@@ -1577,9 +1584,17 @@ body.logged-in .anonymous-bulk-info {
 }
 
 @media (max-width: 480px) {
+  .modal {
+    padding: 10px;
+  }
+
   #room-limit-modal .modal-content {
-    max-height: 98vh;
+    max-width: calc(100vw - 20px);
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 40px); /* Proper spacing for small screens */
     padding: 15px 12px;
+    margin: 10px 0;
+    border-radius: 12px;
   }
 
   .limit-icon {

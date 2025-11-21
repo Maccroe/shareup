@@ -163,6 +163,8 @@
         padding: 20px;
         margin-bottom: 15px;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        box-sizing: border-box;
       }
 
       .device-header {
@@ -170,6 +172,8 @@
         justify-content: space-between;
         align-items: center;
         margin-bottom: 15px;
+        flex-wrap: wrap;
+        gap: 10px;
       }
 
       .fingerprint {
@@ -179,6 +183,8 @@
         padding: 5px 10px;
         border-radius: 5px;
         color: #495057;
+        flex: 1;
+        min-width: 200px;
       }
 
       .usage-badge {
@@ -188,12 +194,21 @@
         border-radius: 20px;
         font-weight: bold;
         margin-left: auto;
+        white-space: nowrap;
+        box-sizing: border-box;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .device-actions {
         display: flex;
         gap: 10px;
         align-items: center;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        max-width: 100%;
+        box-sizing: border-box;
       }
 
       .remove-btn {
@@ -206,6 +221,9 @@
         cursor: pointer;
         transition: all 0.3s;
         font-weight: 500;
+        white-space: nowrap;
+        box-sizing: border-box;
+        max-width: 100%;
       }
 
       .remove-btn:hover {
@@ -300,6 +318,75 @@
         .dashboard-header {
           flex-direction: column;
           gap: 15px;
+        }
+
+        .device-header {
+          flex-direction: column;
+          align-items: center;
+          gap: 15px;
+          text-align: center;
+        }
+
+        .fingerprint {
+          min-width: auto;
+          text-align: center;
+          width: 100%;
+          max-width: 100%;
+          box-sizing: border-box;
+        }
+
+        .device-actions {
+          justify-content: center;
+          width: 100%;
+          max-width: 100%;
+          margin: 0;
+        }
+
+        .usage-badge {
+          font-size: 0.9em;
+          padding: 8px 12px;
+          margin: 0;
+          text-align: center;
+        }
+
+        .remove-btn {
+          font-size: 0.9em;
+          padding: 10px 20px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .device-card {
+          padding: 15px;
+          margin: 0 5px 15px 5px;
+        }
+
+        .fingerprint {
+          font-size: 0.8em;
+          padding: 8px;
+        }
+
+        .device-actions {
+          flex-direction: column;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .usage-badge {
+          font-size: 0.85em;
+          text-align: center;
+          width: 90%;
+          max-width: 280px;
+          padding: 10px;
+          border-radius: 25px;
+        }
+
+        .remove-btn {
+          width: 90%;
+          max-width: 280px;
+          padding: 12px;
+          text-align: center;
+          border-radius: 25px;
         }
       }
     </style>
