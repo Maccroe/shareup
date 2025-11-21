@@ -352,19 +352,20 @@ function generateUserFingerprint(socket) {
   // Create multiple fingerprint layers
   const crypto = require('crypto');
 
-  // Primary fingerprint - now IP + OS based (consistent across browsers on same machine)
+  // Primary fingerprint - now includes IP + OS + UserAgent for unique device identification
+  // This ensures different devices (iPhone vs Android) with different IPs are truly separate
   const primaryFingerprint = crypto.createHash('sha256')
-    .update(ip + os + acceptLanguage)
+    .update(ip + os + userAgent + acceptLanguage)
     .digest('hex').substring(0, 16);
 
-  // Secondary fingerprint (network-based)
+  // Secondary fingerprint (network-based) - only for same network detection
   const networkFingerprint = crypto.createHash('sha256')
     .update(ip + origin + referer)
     .digest('hex').substring(0, 12);
 
-  // Device fingerprint (browser/OS specific)
+  // Device fingerprint (browser/OS/hardware specific) - includes more unique device characteristics
   const deviceFingerprint = crypto.createHash('sha256')
-    .update(os + browser + acceptLanguage)
+    .update(os + browser + userAgent + acceptLanguage + acceptEncoding)
     .digest('hex').substring(0, 12);
 
   return {
@@ -409,16 +410,23 @@ async function checkAnonymousRoomLimit(socket) {
         date: today,
         $or: [
           { 'metadata.network': fingerprints.network },
-          { 'ips': fingerprints.ip }
+          // Only match same IP if it's the exact same network fingerprint (same origin/referer)
+          {
+            'ips': fingerprints.ip,
+            'metadata.network': fingerprints.network
+          }
         ]
       }),
       AnonymousLimit.find({
         date: today,
         $or: [
           { 'metadata.device': fingerprints.device },
-          // Same OS and IP (different browser on same machine)
+          // Much more strict device matching - require exact same device fingerprint
+          // Remove the loose OS+IP matching that was causing false positives
           {
             'metadata.os': fingerprints.os,
+            'metadata.browser': fingerprints.browser,
+            'metadata.userAgent': fingerprints.userAgent,
             'ips': fingerprints.ip
           }
         ]
@@ -434,7 +442,7 @@ async function checkAnonymousRoomLimit(socket) {
       totalUsage += primaryData.count;
     }
 
-    // Add usage from network matches (same IP/network fingerprint)
+    // Add usage from network matches (same network fingerprint only)
     networkMatches.forEach(match => {
       if (!relatedFingerprints.has(match.fingerprint)) {
         relatedFingerprints.add(match.fingerprint);
@@ -442,7 +450,7 @@ async function checkAnonymousRoomLimit(socket) {
       }
     });
 
-    // Add usage from device matches (same device signature)
+    // Add usage from device matches (strict device fingerprint matching)
     deviceMatches.forEach(match => {
       if (!relatedFingerprints.has(match.fingerprint)) {
         relatedFingerprints.add(match.fingerprint);
@@ -453,15 +461,15 @@ async function checkAnonymousRoomLimit(socket) {
     // Create or update primary fingerprint data
     let limitData = primaryData;
 
-    // If no primary data exists, check if there's an existing record for this IP+OS combination
+    // If no primary data exists, check if there's an existing record for this exact device
     if (!limitData && relatedFingerprints.size > 0) {
-      // Find the most recent record for this user (same IP+OS)
+      // Find the most recent record for this specific device (stricter matching)
       const existingRecord = networkMatches.find(match =>
         match.ips.includes(fingerprints.ip) &&
-        match.metadata?.os === fingerprints.os
+        match.metadata?.network === fingerprints.network
       ) || deviceMatches.find(match =>
         match.ips.includes(fingerprints.ip) &&
-        match.metadata?.os === fingerprints.os
+        match.metadata?.device === fingerprints.device
       );
 
       if (existingRecord) {
