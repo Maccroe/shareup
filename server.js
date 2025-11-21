@@ -329,11 +329,30 @@ const DAILY_ROOM_LIMIT = 5;
 
 // Enhanced user fingerprinting for anonymous limit tracking
 function generateUserFingerprint(socket) {
-  let ip = socket.handshake.address || socket.conn.remoteAddress || 'unknown';
+  // Get real client IP with better detection
+  let ip = socket.handshake.headers['x-forwarded-for'] ||
+    socket.handshake.headers['x-real-ip'] ||
+    socket.handshake.address ||
+    socket.conn.remoteAddress ||
+    'unknown';
 
-  // Normalize localhost IPs to prevent IPv4/IPv6 duplicates
-  if (ip === '::1' || ip === '::ffff:127.0.0.1' || ip === '127.0.0.1') {
-    ip = 'localhost';
+  // Handle comma-separated IPs from proxies (take first one)
+  if (ip.includes(',')) {
+    ip = ip.split(',')[0].trim();
+  }
+
+  // Remove IPv6 prefix if present
+  if (ip.startsWith('::ffff:')) {
+    ip = ip.substring(7);
+  }
+
+  // For local development, use a unique identifier instead of just 'localhost'
+  // This helps distinguish between different devices connecting locally
+  if (ip === '::1' || ip === '127.0.0.1') {
+    // Use User-Agent hash as unique identifier for local connections
+    const userAgent = socket.handshake.headers['user-agent'] || 'unknown';
+    const crypto = require('crypto');
+    ip = 'local-' + crypto.createHash('md5').update(userAgent).digest('hex').substring(0, 8);
   }
 
   const userAgent = socket.handshake.headers['user-agent'] || 'unknown';
@@ -342,11 +361,26 @@ function generateUserFingerprint(socket) {
   const referer = socket.handshake.headers['referer'] || 'unknown';
   const origin = socket.handshake.headers['origin'] || 'unknown';
 
-  // Extract more specific browser/device info from User-Agent
+  // Extract more specific browser/device info from User-Agent with better mobile detection
   const uaLower = userAgent.toLowerCase();
-  const osPattern = /(windows|mac|linux|android|ios|iphone|ipad)/i;
+
+  // Better OS detection - prioritize mobile OS detection
+  let os = 'unknown';
+  if (uaLower.includes('iphone') || uaLower.includes('ios')) {
+    os = 'iphone';
+  } else if (uaLower.includes('ipad')) {
+    os = 'ipad';
+  } else if (uaLower.includes('android')) {
+    os = 'android';
+  } else if (uaLower.includes('windows')) {
+    os = 'windows';
+  } else if (uaLower.includes('mac') && !uaLower.includes('iphone') && !uaLower.includes('ipad')) {
+    os = 'mac';
+  } else if (uaLower.includes('linux')) {
+    os = 'linux';
+  }
+
   const browserPattern = /(chrome|firefox|safari|edge|opera)/i;
-  const os = (uaLower.match(osPattern) || ['unknown'])[0];
   const browser = (uaLower.match(browserPattern) || ['unknown'])[0];
 
   // Create multiple fingerprint layers
@@ -367,6 +401,17 @@ function generateUserFingerprint(socket) {
   const deviceFingerprint = crypto.createHash('sha256')
     .update(os + browser + userAgent + acceptLanguage + acceptEncoding)
     .digest('hex').substring(0, 12);
+
+  // Debug logging to help identify issues
+  console.log('🔍 Device Fingerprinting Debug:', {
+    ip: ip,
+    os: os,
+    browser: browser,
+    userAgent: userAgent.substring(0, 50) + '...',
+    primaryFingerprint: primaryFingerprint,
+    networkFingerprint: networkFingerprint,
+    deviceFingerprint: deviceFingerprint
+  });
 
   return {
     primary: primaryFingerprint,
