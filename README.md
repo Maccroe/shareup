@@ -77,6 +77,35 @@ npm run dev
 
 ## 🔧 Configuration
 
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+```bash
+cp .env.example .env
+```
+
+Key configurations:
+
+- `MONGODB_URI` - MongoDB connection string
+- `JWT_SECRET` - Secret key for JWT tokens
+- `TIMEZONE` - Timezone for daily room limit resets (default: UTC)
+- `ADMIN_PASSWORD` - Admin panel access password
+
+### Timezone Configuration
+
+Set the `TIMEZONE` environment variable to control when daily room limits reset:
+
+```env
+# Examples:
+TIMEZONE=America/New_York    # Eastern Time
+TIMEZONE=Europe/London       # GMT/BST
+TIMEZONE=Asia/Tokyo         # Japan Standard Time
+TIMEZONE=UTC                # Coordinated Universal Time (default)
+```
+
+This ensures room limits reset at midnight in your specified timezone, not server time.
+
 ### STUN Servers
 
 The app uses Google's public STUN servers for NAT traversal. For production, consider:

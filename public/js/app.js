@@ -888,6 +888,27 @@ function showRoomLimitModal(message, remaining, resetTime) {
 
   // Start countdown timer if reset time is provided
   if (resetTime) {
+    // Calculate and display exact reset time in user's local timezone
+    const resetTimeObj = new Date(resetTime.resetTime);
+    const exactResetTimeElement = document.getElementById('exact-reset-time');
+    if (exactResetTimeElement) {
+      // Format time in user's local timezone
+      const timeOptions = {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZoneName: 'short'
+      };
+      const formattedTime = resetTimeObj.toLocaleTimeString('en-US', timeOptions);
+
+      // Extract just the time part (remove timezone if it's too long)
+      const timeParts = formattedTime.split(' ');
+      const timeOnly = timeParts[0] + ' ' + timeParts[1]; // "12:00 AM/PM"
+      const timezone = timeParts[2] || ''; // timezone abbreviation
+
+      exactResetTimeElement.textContent = `at ${timeOnly}${timezone ? ' (' + timezone + ')' : ''}`;
+    }
+
     // Small delay to ensure DOM elements are ready
     setTimeout(() => {
       const countdownElement = document.getElementById('reset-countdown');
@@ -931,6 +952,9 @@ function createRoomLimitModal() {
             <h4>Limit resets in:</h4>
             <div class="countdown-display">
               <span id="countdown-time">--:--:--</span>
+            </div>
+            <div class="reset-time-display">
+              <span id="exact-reset-time">at --:-- --</span>
             </div>
           </div>
           <div class="limit-benefits">

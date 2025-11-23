@@ -40,6 +40,7 @@ const User = require('./models/User');
 const AnonymousLimit = require('./models/AnonymousLimit');
 const Room = require('./models/Room');
 const discordLogger = require('./utils/discord');
+const TimezoneHelper = require('./utils/timezone');
 
 const app = express();
 const server = http.createServer(app);
@@ -574,6 +575,33 @@ function generateUserFingerprint(socket) {
 
 // Get time until daily limit reset (midnight)
 function getTimeUntilReset() {
+  const timezone = process.env.TIMEZONE || 'UTC'; // Default to UTC if not specified
+
+  // Validate timezone
+  if (!TimezoneHelper.validateTimezone(timezone)) {
+    logger.warn(`Invalid timezone '${timezone}' specified. Falling back to UTC.`);
+    return getTimeUntilResetUTC();
+  }
+
+  try {
+    const resetInfo = TimezoneHelper.getNextMidnight(timezone);
+
+    return {
+      milliseconds: resetInfo.msUntilReset,
+      resetTime: resetInfo.utcTime.toISOString(),
+      timezone: timezone,
+      hours: Math.floor(resetInfo.msUntilReset / (1000 * 60 * 60)),
+      minutes: Math.floor((resetInfo.msUntilReset % (1000 * 60 * 60)) / (1000 * 60)),
+      seconds: Math.floor((resetInfo.msUntilReset % (1000 * 60)) / 1000)
+    };
+  } catch (error) {
+    logger.error(`Error calculating reset time for timezone '${timezone}':`, error);
+    return getTimeUntilResetUTC();
+  }
+}
+
+// Fallback function for UTC timezone
+function getTimeUntilResetUTC() {
   const now = new Date();
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -583,6 +611,7 @@ function getTimeUntilReset() {
   return {
     milliseconds: msUntilReset,
     resetTime: tomorrow.toISOString(),
+    timezone: 'UTC',
     hours: Math.floor(msUntilReset / (1000 * 60 * 60)),
     minutes: Math.floor((msUntilReset % (1000 * 60 * 60)) / (1000 * 60)),
     seconds: Math.floor((msUntilReset % (1000 * 60)) / 1000)
@@ -1330,6 +1359,16 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
+  const timezone = process.env.TIMEZONE || 'UTC';
+  const timezoneInfo = TimezoneHelper.getTimezoneInfo(timezone);
+
   logger.essential(`Server running on port ${PORT}`);
   logger.essential(`Access the app at http://localhost:${PORT}`);
+  logger.essential(`Daily room limits reset at midnight in timezone: ${timezone}`);
+
+  if (timezoneInfo.isValid) {
+    logger.essential(`Current time in ${timezone}: ${timezoneInfo.currentTime}`);
+  } else {
+    logger.warn(`Invalid timezone '${timezone}' configured. Using UTC instead.`);
+  }
 });
