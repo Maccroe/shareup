@@ -211,4 +211,4 @@ For issues and questions:
 
 ---
 
-**Made with ❤️ Maccroe for seamless file sharing across the globe**
+**Made with ❤️ for seamless file sharing across the globe**

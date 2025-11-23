@@ -389,50 +389,11 @@
           border-radius: 25px;
         }
       }
-
-      .loading-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        flex-direction: column;
-      }
-
-      .loading-spinner {
-        width: 50px;
-        height: 50px;
-        border: 5px solid #f3f3f3;
-        border-top: 5px solid #667eea;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin-bottom: 20px;
-      }
-
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
-      }
-
-      .loading-text {
-        color: white;
-        font-size: 1.2em;
-        text-align: center;
-      }
     </style>
   </head>
   <body>
-    <!-- Loading State -->
-    <div id="loadingContainer" class="loading-container">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">Checking authentication...</div>
-    </div>
-
     <!-- Admin Login Form -->
-    <div id="loginContainer" class="login-container" style="display: none">
+    <div id="loginContainer" class="login-container">
       <div class="login-form">
         <h1>🔐 Admin Login</h1>
         <div class="input-group">
@@ -485,10 +446,7 @@
       </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script>
-      let adminSocket = null;
-
       // Check authentication status on page load
       window.addEventListener("load", checkAuthStatus);
 
@@ -496,9 +454,6 @@
         try {
           const response = await fetch("/api/admin/status");
           const data = await response.json();
-
-          // Hide loading state
-          document.getElementById("loadingContainer").style.display = "none";
 
           if (data.authenticated) {
             showDashboard();
@@ -508,25 +463,18 @@
           }
         } catch (error) {
           console.error("Error checking auth status:", error);
-          // Hide loading state and show login
-          document.getElementById("loadingContainer").style.display = "none";
           showLogin();
         }
       }
 
       function showLogin() {
-        document.getElementById("loadingContainer").style.display = "none";
         document.getElementById("loginContainer").style.display = "flex";
         document.getElementById("dashboardContainer").style.display = "none";
       }
 
       function showDashboard() {
-        document.getElementById("loadingContainer").style.display = "none";
         document.getElementById("loginContainer").style.display = "none";
         document.getElementById("dashboardContainer").style.display = "block";
-
-        // Connect to real-time admin updates
-        connectAdminSocket();
       }
 
       async function adminLogin() {
@@ -564,66 +512,12 @@
 
       async function adminLogout() {
         try {
-          // Disconnect Socket.IO
-          if (adminSocket) {
-            adminSocket.disconnect();
-            adminSocket = null;
-          }
-
           await fetch("/api/admin/logout", { method: "POST" });
           showLogin();
           document.getElementById("adminPassword").value = "";
         } catch (error) {
           console.error("Logout error:", error);
         }
-      }
-
-      function connectAdminSocket() {
-        if (adminSocket) {
-          adminSocket.disconnect();
-        }
-
-        adminSocket = io({
-          auth: {
-            type: "admin",
-          },
-        });
-
-        adminSocket.on("connect", () => {
-          console.log("🔗 Admin connected to real-time updates");
-        });
-
-        adminSocket.on("disconnect", () => {
-          console.log("❌ Admin disconnected from real-time updates");
-        });
-
-        // Listen for real-time device updates
-        adminSocket.on("admin:deviceUpdate", (data) => {
-          console.log("📱 Real-time device update:", data);
-          updateDeviceInDashboard(data);
-        });
-
-        // Listen for device unblocks
-        adminSocket.on("admin:deviceUnblocked", (data) => {
-          console.log("🔓 Device unblocked:", data);
-          removeDeviceFromDashboard(data.fingerprint);
-        });
-
-        // Listen for device limit resets
-        adminSocket.on("admin:deviceReset", (data) => {
-          console.log("🔄 Device limit reset:", data);
-          updateDeviceInDashboard(data);
-        });
-
-        // Listen for new device activity
-        adminSocket.on("admin:newDevice", (data) => {
-          console.log("🆕 New device activity:", data);
-          addDeviceToDashboard(data);
-        });
-
-        adminSocket.on("connect_error", (error) => {
-          console.error("Socket connection error:", error);
-        });
       }
 
       function showError(message) {
@@ -744,11 +638,7 @@
                                 🔓 Unblock
                             </button>
                             `
-                                : `
-                            <button class="remove-btn" onclick="resetDeviceLimit('${entry.fingerprint}')" title="Reset limit for this ${entry.type}">
-                                🔄 Reset Limit
-                            </button>
-                            `
+                                : ""
                             }
                         </div>
                     </div>
@@ -885,151 +775,14 @@
         }
       }
 
-      async function resetDeviceLimit(fingerprint) {
+      // Auto-refresh every 30 seconds (only when logged in)
+      setInterval(() => {
         if (
-          !confirm(
-            `Are you sure you want to reset the limit for device: ${fingerprint}?\\n\\nThis will reset their room count to 0 for today.`
-          )
+          document.getElementById("dashboardContainer").style.display !== "none"
         ) {
-          return;
-        }
-
-        const button = document.querySelector(
-          `button[onclick="resetDeviceLimit('${fingerprint}')"]`
-        );
-        const originalText = button.innerHTML;
-
-        try {
-          // Disable button and show loading state
-          button.disabled = true;
-          button.innerHTML = "⏳ Resetting...";
-
-          const response = await fetch(
-            `/api/admin/reset-limit/${encodeURIComponent(fingerprint)}`,
-            {
-              method: "POST",
-            }
-          );
-
-          const data = await response.json();
-
-          if (data.success) {
-            // Show success message
-            button.innerHTML = "✅ Reset";
-            button.style.background = "#28a745";
-
-            // Refresh the data after a short delay
-            setTimeout(() => {
-              loadData();
-            }, 1000);
-          } else {
-            throw new Error(data.error || "Failed to reset device limit");
-          }
-        } catch (error) {
-          console.error("Error resetting device limit:", error);
-          alert(`Failed to reset device limit: ${error.message}`);
-
-          // Restore button state
-          button.disabled = false;
-          button.innerHTML = originalText;
-        }
-      }
-
-      // Real-time update functions for individual device changes
-      function updateDeviceInDashboard(deviceData) {
-        // Update statistics
-        updateStatsRealtime();
-
-        // Find and update the specific device card
-        const deviceCards = document.querySelectorAll(".device-card");
-        let deviceFound = false;
-
-        deviceCards.forEach((card) => {
-          const fingerprintElement = card.querySelector(".fingerprint");
-          if (
-            fingerprintElement &&
-            fingerprintElement.textContent.includes(
-              deviceData.fingerprint.substring(0, 12)
-            )
-          ) {
-            // Update the existing card
-            updateDeviceCard(card, deviceData);
-            deviceFound = true;
-          }
-        });
-
-        // If device not found, refresh the section
-        if (!deviceFound) {
           loadData();
         }
-      }
-
-      function removeDeviceFromDashboard(fingerprint) {
-        const deviceCards = document.querySelectorAll(".device-card");
-        deviceCards.forEach((card) => {
-          const fingerprintElement = card.querySelector(".fingerprint");
-          if (
-            fingerprintElement &&
-            fingerprintElement.textContent.includes(
-              fingerprint.substring(0, 12)
-            )
-          ) {
-            card.style.transition = "opacity 0.5s ease-out";
-            card.style.opacity = "0";
-            setTimeout(() => {
-              card.remove();
-              updateStatsRealtime();
-            }, 500);
-          }
-        });
-      }
-
-      function addDeviceToDashboard(deviceData) {
-        // For new devices, refresh the data to maintain proper ordering
-        loadData();
-      }
-
-      function updateDeviceCard(card, deviceData) {
-        // Update usage badge
-        const usageBadge = card.querySelector(".usage-badge");
-        if (usageBadge) {
-          const isBlocked = deviceData.count >= 5;
-          const badgeColor = isBlocked ? "#dc3545" : "#28a745";
-          const statusText = isBlocked ? "BLOCKED" : "ACTIVE";
-
-          usageBadge.innerHTML = `${deviceData.count}/5 rooms (${statusText})`;
-          usageBadge.style.background = badgeColor;
-
-          // Update button if status changed
-          const button = card.querySelector("button");
-          if (button) {
-            if (isBlocked) {
-              button.onclick = () =>
-                removeBlockedDevice(deviceData.fingerprint);
-              button.innerHTML = "🔓 Unblock";
-              button.title = `Unblock this ${deviceData.type || "device"}`;
-            } else {
-              button.onclick = () => resetDeviceLimit(deviceData.fingerprint);
-              button.innerHTML = "🔄 Reset Limit";
-              button.title = `Reset limit for this ${
-                deviceData.type || "device"
-              }`;
-            }
-          }
-        }
-      }
-
-      async function updateStatsRealtime() {
-        try {
-          const response = await fetch("/api/admin/stats");
-          if (response.ok) {
-            const stats = await response.json();
-            updateStats(stats);
-          }
-        } catch (error) {
-          console.error("Error updating stats:", error);
-        }
-      }
+      }, 30000);
     </script>
   </body>
 </html>

@@ -909,12 +909,6 @@ body.logged-in .anonymous-bulk-info {
   display: none !important;
 }
 
-.loading .auth-buttons,
-.loading .user-menu {
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
 .text-center {
   text-align: center;
 }

@@ -109,12 +109,6 @@ app.get('/api/admin/status', (req, res) => {
   });
 });
 
-app.get('/api/admin/status', (req, res) => {
-  res.json({
-    authenticated: req.session.isAdminAuthenticated || false
-  });
-});
-
 // Remove blocked device endpoint
 app.delete('/api/admin/blocked/:fingerprint', requireAdminAuth, async (req, res) => {
   try {
@@ -141,12 +135,6 @@ app.delete('/api/admin/blocked/:fingerprint', requireAdminAuth, async (req, res)
         deletedDevice.type || 'device' // Pass the tracking type
       );
 
-      // Emit real-time update to admin dashboard
-      emitToAdmins('admin:deviceUnblocked', {
-        fingerprint: deletedDevice.fingerprint,
-        type: deletedDevice.type || 'device'
-      });
-
       res.json({
         success: true,
         message: 'Device unblocked successfully',
@@ -168,80 +156,6 @@ app.delete('/api/admin/blocked/:fingerprint', requireAdminAuth, async (req, res)
     res.status(500).json({
       success: false,
       error: 'Failed to remove blocked device',
-      message: error.message
-    });
-  }
-});
-
-// Reset device/network limit endpoint
-app.post('/api/admin/reset-limit/:fingerprint', requireAdminAuth, async (req, res) => {
-  try {
-    const { fingerprint } = req.params;
-
-    if (!fingerprint) {
-      return res.status(400).json({
-        success: false,
-        error: 'Fingerprint is required'
-      });
-    }
-
-    const device = await AnonymousLimit.findOne({ fingerprint });
-
-    if (device) {
-      // Reset the count to 0
-      device.count = 0;
-      await device.save();
-
-      logger.info(`🔄 Admin reset limit for device: ${fingerprint} (${device.deviceInfo?.os}/${device.deviceInfo?.browser}) - Count reset to 0`);
-
-      // Send Discord notification for device limit reset
-      try {
-        await discordLogger.logDeviceLimitReset(
-          fingerprint,
-          device.deviceInfo?.deviceName || 'Unknown Device',
-          device.deviceInfo?.os || 'Unknown',
-          device.deviceInfo?.browser || 'Unknown',
-          device.type || 'device'
-        );
-      } catch (discordError) {
-        logger.warn('Discord notification failed for device limit reset:', discordError.message);
-      }
-
-      // Emit real-time update to admin dashboard
-      const deviceUpdate = {
-        fingerprint: device.fingerprint,
-        count: device.count,
-        limit: DAILY_ROOM_LIMIT,
-        ips: device.ips,
-        type: device.type || 'device',
-        deviceInfo: device.deviceInfo,
-        isBlocked: false // Count is now 0, so not blocked
-      };
-
-      emitToAdmins('admin:deviceReset', deviceUpdate);
-
-      res.json({
-        success: true,
-        message: 'Device limit reset successfully',
-        device: {
-          fingerprint: device.fingerprint,
-          count: device.count,
-          limit: DAILY_ROOM_LIMIT,
-          ips: device.ips,
-          metadata: device.metadata
-        }
-      });
-    } else {
-      res.status(404).json({
-        success: false,
-        error: 'Device not found'
-      });
-    }
-  } catch (error) {
-    console.error('Error resetting device limit:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to reset device limit',
       message: error.message
     });
   }
@@ -377,40 +291,6 @@ app.get('/api/admin/devices', requireAdminAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch device data',
-      message: error.message
-    });
-  }
-});
-
-// Admin stats endpoint for real-time updates
-app.get('/api/admin/stats', requireAdminAuth, async (req, res) => {
-  try {
-    const today = new Date().toDateString();
-    const allEntries = await AnonymousLimit.find({ date: today });
-
-    const blockedDevices = allEntries.filter(entry => entry.count >= DAILY_ROOM_LIMIT);
-    const uniqueIPs = new Set();
-    let totalRoomAttempts = 0;
-
-    allEntries.forEach(entry => {
-      entry.ips.forEach(ip => uniqueIPs.add(ip));
-      totalRoomAttempts += entry.count;
-    });
-
-    res.json({
-      summary: {
-        blockedDevices: blockedDevices.filter(e => e.type === 'device').length,
-        blockedNetworks: blockedDevices.filter(e => e.type === 'network').length,
-        totalUniqueIPs: uniqueIPs.size,
-        totalRoomAttempts: totalRoomAttempts,
-        totalActive: allEntries.length
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching admin stats:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch admin stats',
       message: error.message
     });
   }
@@ -896,39 +776,6 @@ async function incrementAnonymousRoomUsage(socket) {
       networkLimitData.save()
     ]);
 
-    // Emit real-time updates to admin dashboard
-    const deviceUpdate = {
-      fingerprint: deviceLimitData.fingerprint,
-      count: deviceLimitData.count,
-      limit: DAILY_ROOM_LIMIT,
-      ips: deviceLimitData.ips,
-      type: 'device',
-      deviceInfo: deviceLimitData.deviceInfo,
-      isBlocked: deviceLimitData.count >= DAILY_ROOM_LIMIT
-    };
-
-    const networkUpdate = {
-      fingerprint: networkLimitData.fingerprint,
-      count: networkLimitData.count,
-      limit: DAILY_ROOM_LIMIT,
-      ips: networkLimitData.ips,
-      type: 'network',
-      deviceInfo: networkLimitData.deviceInfo,
-      isBlocked: networkLimitData.count >= DAILY_ROOM_LIMIT
-    };
-
-    // Emit to admin dashboard
-    emitToAdmins('admin:deviceUpdate', deviceUpdate);
-    emitToAdmins('admin:deviceUpdate', networkUpdate);
-
-    // If this is a new device/network (count = 1), emit new device event
-    if (deviceLimitData.count === 1) {
-      emitToAdmins('admin:newDevice', deviceUpdate);
-    }
-    if (networkLimitData.count === 1 && fingerprints.deviceId !== fingerprints.networkFingerprint) {
-      emitToAdmins('admin:newDevice', networkUpdate);
-    }
-
     const deviceRemaining = DAILY_ROOM_LIMIT - deviceLimitData.count;
     const networkRemaining = DAILY_ROOM_LIMIT - networkLimitData.count;
 
@@ -974,30 +821,8 @@ app.get('/admin', (req, res) => {
 // Socket.io connection handling
 io.use(socketAuth); // Add optional authentication to sockets
 
-// Admin socket tracking
-const adminSockets = new Set();
-
-// Utility function to emit to all admin sockets
-function emitToAdmins(event, data) {
-  adminSockets.forEach(socket => {
-    socket.emit(event, data);
-  });
-  logger.verbose(`📡 Emitted ${event} to ${adminSockets.size} admin socket(s)`);
-}
-
 io.on('connection', (socket) => {
   logger.verbose('User connected:', socket.id, socket.user ? `(${socket.user.username})` : '(anonymous)');
-
-  // Handle admin connections
-  if (socket.handshake.auth?.type === 'admin') {
-    adminSockets.add(socket);
-    logger.info(`🔐 Admin socket connected: ${socket.id} (${adminSockets.size} total)`);
-
-    socket.on('disconnect', () => {
-      adminSockets.delete(socket);
-      logger.info(`🔐 Admin socket disconnected: ${socket.id} (${adminSockets.size} remaining)`);
-    });
-  }
 
   // For debugging: if user is logged in, immediately check their room history
   if (socket.user) {

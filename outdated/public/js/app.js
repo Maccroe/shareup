@@ -126,8 +126,6 @@ function logout() {
 // Initialize the application
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuthStatus();
-  // Remove loading class to show auth UI
-  document.body.classList.remove('loading');
   initializeSocket();
   setupEventListeners();
   setupAuthEventListeners();

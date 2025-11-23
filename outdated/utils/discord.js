@@ -106,23 +106,6 @@ class DiscordLogger {
           timestamp
         };
 
-      case 'device_limit_reset':
-        return {
-          title: '🔄 Device Limit Reset by Admin',
-          color: 0x00BFFF, // Deep Sky Blue
-          fields: [
-            { name: '📱 Device', value: `${data.deviceName || 'Unknown Device'}`, inline: true },
-            { name: '🔑 Fingerprint', value: `\`${data.fingerprint.substring(0, 12)}...\``, inline: true },
-            { name: '💻 OS & Browser', value: `${data.os} • ${data.browser}`, inline: true },
-            { name: '🔄 Tracking Type', value: data.trackingType === 'device' ? '📱 Device ID Tracking' : '🌐 Network IP Tracking', inline: true },
-            { name: '🛡️ Admin Action', value: 'Room count reset to 0', inline: false }
-          ],
-          footer: {
-            text: 'ShareUp Admin Action'
-          },
-          timestamp
-        };
-
       default:
         return {
           title: '📊 ShareUp Activity',
@@ -154,12 +137,6 @@ class DiscordLogger {
 
   async logDeviceUnblocked(fingerprint, deviceName, os, browser, trackingType) {
     return await this.sendLog('device_unblocked', {
-      fingerprint, deviceName, os, browser, trackingType
-    });
-  }
-
-  async logDeviceLimitReset(fingerprint, deviceName, os, browser, trackingType) {
-    return await this.sendLog('device_limit_reset', {
       fingerprint, deviceName, os, browser, trackingType
     });
   }
