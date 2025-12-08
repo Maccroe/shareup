@@ -80,6 +80,10 @@ const requireAdminAuth = (req, res, next) => {
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
+// Stripe routes (webhook must be before express.json middleware)
+const stripeRoutes = require('./routes/stripe');
+app.use('/api/stripe', stripeRoutes);
+
 // Admin authentication routes
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body;

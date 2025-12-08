@@ -8,6 +8,7 @@
     <link rel="manifest" href="manifest.json" />
     <meta name="theme-color" content="#4285f4" />
     <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <script src="https://js.stripe.com/v3/"></script>
   </head>
   <body class="loading">
     <div class="container">
@@ -28,6 +29,12 @@
               <div class="user-dropdown">
                 <button id="user-profile-btn" class="dropdown-item">
                   Profile
+                </button>
+                <button
+                  id="upgrade-premium-btn"
+                  class="dropdown-item premium-btn"
+                >
+                  👑 Upgrade to Premium
                 </button>
                 <button id="user-logout-btn" class="dropdown-item">
                   Logout
@@ -255,198 +262,526 @@
           <p id="loading-text">Creating room...</p>
         </div>
       </div>
+    </div>
 
-      <!-- Login Modal -->
-      <div id="login-modal" class="modal hidden">
-        <div class="modal-content auth-modal">
-          <div class="modal-header">
-            <h3>Login to Your Account</h3>
-            <button id="login-close-btn" class="close-btn">&times;</button>
-          </div>
-          <form id="login-form">
-            <div class="input-group">
-              <label for="login-username">Username or Email:</label>
-              <input
-                type="text"
-                id="login-username"
-                placeholder="Enter your username or email"
-                required
-              />
-            </div>
-            <div class="input-group">
-              <label for="login-password">Password:</label>
-              <input
-                type="password"
-                id="login-password"
-                placeholder="Enter your password"
-                required
-              />
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="btn primary">Login</button>
-              <button
-                type="button"
-                id="show-register-btn"
-                class="btn secondary"
-              >
-                Need an account? Register
-              </button>
-            </div>
-          </form>
+    <!-- All Modals Outside Container (for proper z-index and display) -->
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal hidden">
+      <div class="modal-content auth-modal">
+        <div class="modal-header">
+          <h3>Login to Your Account</h3>
+          <button id="login-close-btn" class="close-btn">&times;</button>
         </div>
-      </div>
-
-      <!-- Register Modal -->
-      <div id="register-modal" class="modal hidden">
-        <div class="modal-content auth-modal">
-          <div class="modal-header">
-            <h3>Create New Account</h3>
-            <button id="register-close-btn" class="close-btn">&times;</button>
+        <form id="login-form">
+          <div class="input-group">
+            <label for="login-username">Username or Email:</label>
+            <input
+              type="text"
+              id="login-username"
+              placeholder="Enter your username or email"
+              required
+            />
           </div>
-          <form id="register-form">
-            <div class="input-group">
-              <label for="register-username">Username:</label>
-              <input
-                type="text"
-                id="register-username"
-                placeholder="Choose a username"
-                minlength="3"
-                maxlength="20"
-                required
-              />
-            </div>
-            <div class="input-group">
-              <label for="register-email">Email:</label>
-              <input
-                type="email"
-                id="register-email"
-                placeholder="Enter your email"
-                required
-              />
-            </div>
-            <div class="input-group">
-              <label for="register-password">Password:</label>
-              <input
-                type="password"
-                id="register-password"
-                placeholder="Create a password (min 6 characters)"
-                minlength="6"
-                required
-              />
-            </div>
-            <div class="input-group">
-              <label for="register-confirm-password">Confirm Password:</label>
-              <input
-                type="password"
-                id="register-confirm-password"
-                placeholder="Confirm your password"
-                minlength="6"
-                required
-              />
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="btn primary">Create Account</button>
-              <button type="button" id="show-login-btn" class="btn secondary">
-                Already have an account? Login
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      <!-- Profile Modal -->
-      <div id="profile-modal" class="modal hidden">
-        <div class="modal-content profile-modal">
-          <div class="modal-header">
-            <h3>User Profile</h3>
-            <button id="profile-close-btn" class="close-btn">&times;</button>
-          </div>
-          <div class="profile-content">
-            <div class="profile-info">
-              <div class="avatar-section">
-                <div id="profile-avatar" class="profile-avatar">👤</div>
-                <input
-                  type="file"
-                  id="avatar-input"
-                  accept="image/*"
-                  style="display: none"
-                />
-                <button id="change-avatar-btn" class="btn secondary small">
-                  Change Avatar
-                </button>
-                <div id="avatar-upload-progress" class="upload-progress hidden">
-                  <div class="progress-bar">
-                    <div class="progress-fill" id="avatar-progress-fill"></div>
-                  </div>
-                  <span id="avatar-progress-text">Uploading...</span>
-                </div>
-              </div>
-              <div class="user-details">
-                <p>
-                  <strong>Username:</strong> <span id="profile-username"></span>
-                </p>
-                <p><strong>Email:</strong> <span id="profile-email"></span></p>
-                <p>
-                  <strong>Member since:</strong>
-                  <span id="profile-joined"></span>
-                </p>
-                <p>
-                  <strong>Last login:</strong>
-                  <span id="profile-last-login"></span>
-                </p>
-              </div>
-            </div>
-            <div class="room-history">
-              <h4>Recent Rooms</h4>
-              <div id="profile-rooms" class="room-list">
-                <!-- Room history will be populated here -->
-              </div>
-            </div>
-            <div class="profile-actions">
-              <button id="change-password-btn" class="btn secondary">
-                Change Password
-              </button>
-              <button id="delete-account-btn" class="btn danger">
-                Delete Account
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Room Expiration Modal -->
-      <div id="room-expired-modal" class="modal hidden">
-        <div class="modal-content expired-modal">
-          <div class="modal-header">
-            <h3>⏰ Room Expired</h3>
-          </div>
-          <div class="expired-content">
-            <p>Your anonymous room has expired after 2 minutes.</p>
-            <p><strong>Want unlimited room time?</strong></p>
-            <ul>
-              <li>✅ Create rooms without time limits</li>
-              <li>✅ Track your room history</li>
-              <li>✅ Customize your profile</li>
-            </ul>
+          <div class="input-group">
+            <label for="login-password">Password:</label>
+            <input
+              type="password"
+              id="login-password"
+              placeholder="Enter your password"
+              required
+            />
           </div>
           <div class="form-actions">
-            <button id="expired-login-btn" class="btn primary">
-              Login / Register
+            <button type="submit" class="btn primary">Login</button>
+            <button type="button" id="show-register-btn" class="btn secondary">
+              Need an account? Register
             </button>
-            <button id="expired-close-btn" class="btn secondary">
-              Continue Anonymous
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div id="register-modal" class="modal hidden">
+      <div class="modal-content auth-modal">
+        <div class="modal-header">
+          <h3>Create Account</h3>
+          <button id="register-close-btn" class="close-btn">&times;</button>
+        </div>
+        <form id="register-form">
+          <div class="input-group">
+            <label for="register-username">Username:</label>
+            <input
+              type="text"
+              id="register-username"
+              placeholder="Choose a username"
+              required
+            />
+          </div>
+          <div class="input-group">
+            <label for="register-email">Email:</label>
+            <input
+              type="email"
+              id="register-email"
+              placeholder="Enter your email"
+              required
+            />
+          </div>
+          <div class="input-group">
+            <label for="register-password">Password:</label>
+            <input
+              type="password"
+              id="register-password"
+              placeholder="Create a password"
+              required
+            />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Register</button>
+            <button type="button" id="show-login-btn" class="btn secondary">
+              Already have account? Login
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div id="profile-modal" class="modal hidden">
+      <div class="modal-content profile-modal">
+        <div class="modal-header">
+          <h3>Your Profile</h3>
+          <button id="profile-close-btn" class="close-btn">&times;</button>
+        </div>
+        <div class="profile-content">
+          <div class="profile-header">
+            <span id="profile-avatar" class="profile-avatar">👤</span>
+            <div class="profile-info">
+              <h2 id="profile-username">Username</h2>
+              <p id="profile-email">Email</p>
+            </div>
+          </div>
+
+          <!-- Premium Badge Section -->
+          <div
+            id="premium-section"
+            class="profile-section premium-badge-section hidden"
+          >
+            <div class="premium-status">
+              <div class="premium-badge-animated">
+                <span class="badge-star">⭐</span>
+                <span class="badge-text">PREMIUM</span>
+              </div>
+              <div class="premium-details">
+                <div class="detail-item">
+                  <span class="label">Status:</span>
+                  <span id="premium-status" class="status-badge active"
+                    >Active</span
+                  >
+                </div>
+                <div class="detail-item">
+                  <span class="label">Activated:</span>
+                  <span id="premium-start">-</span>
+                </div>
+                <div class="detail-item">
+                  <span class="label">Renews:</span>
+                  <span id="premium-end" class="renew-date">-</span>
+                </div>
+              </div>
+            </div>
+            <div class="subscription-actions">
+              <button id="view-payment-history-btn" class="btn secondary small">
+                💳 Payment History
+              </button>
+              <button id="cancel-subscription-btn" class="btn danger small">
+                Cancel Subscription
+              </button>
+            </div>
+          </div>
+
+          <div class="profile-section">
+            <h3>Account Details</h3>
+            <div class="detail-item">
+              <span class="label">Joined:</span>
+              <span id="profile-joined">-</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Last Login:</span>
+              <span id="profile-last-login">-</span>
+            </div>
+          </div>
+
+          <div class="profile-section">
+            <h3>Recent Rooms</h3>
+            <div id="profile-rooms" class="rooms-list">
+              <!-- Rooms will be populated here -->
+            </div>
+          </div>
+
+          <div class="profile-section">
+            <h3>Avatar</h3>
+            <div class="avatar-section">
+              <button id="change-avatar-btn" class="btn secondary small">
+                Change Avatar
+              </button>
+              <input
+                type="file"
+                id="avatar-input"
+                accept="image/*"
+                style="display: none"
+              />
+              <p class="small-text">Max 2MB, Square image recommended</p>
+            </div>
+          </div>
+
+          <div class="profile-section">
+            <h3>Danger Zone</h3>
+            <button
+              id="delete-account-btn"
+              class="btn danger"
+              onclick="if(confirm('Are you sure? This cannot be undone.')) deleteAccount()"
+            >
+              Delete Account
             </button>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Error Modal -->
-      <div id="error-modal" class="modal hidden">
-        <div class="modal-content">
-          <h3>Error</h3>
-          <p id="error-message"></p>
-          <button id="error-ok-btn" class="btn primary">OK</button>
+    <!-- Room Expiration Modal -->
+    <div id="room-expired-modal" class="modal hidden">
+      <div class="modal-content expired-modal">
+        <div class="modal-header expired-header">
+          <h3>⏰ Room Expired</h3>
+          <button
+            class="close-modal"
+            aria-label="Close"
+            onclick="hideModal('room-expired-modal')"
+          >
+            ×
+          </button>
         </div>
+        <div class="expired-content">
+          <p>Your anonymous room has expired after 2 minutes.</p>
+          <p><strong>Want unlimited room time?</strong></p>
+          <ul>
+            <li>✅ Create rooms without time limits</li>
+            <li>✅ Track your room history</li>
+            <li>✅ Customize your profile</li>
+          </ul>
+
+          <div class="expired-actions">
+            <button id="expired-login-btn" class="btn primary">
+              Create Free Account
+            </button>
+            <button id="expired-cancel-btn" class="btn secondary">
+              Continue as Anonymous
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Room Limit Modal -->
+    <div id="room-limit-modal" class="modal hidden">
+      <div class="modal-content limit-modal">
+        <div class="modal-header limit-header">
+          <div class="limit-title">
+            <span class="limit-icon">⚠️</span>
+            <div>
+              <p class="limit-subtitle">Daily Room Limit</p>
+              <h3>Limit Reached</h3>
+            </div>
+          </div>
+          <button
+            class="close-modal"
+            aria-label="Close"
+            onclick="hideModal('room-limit-modal')"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <p id="limit-message" class="limit-message">
+            You've created 5 anonymous rooms today (limit resets daily).
+          </p>
+          <div id="remaining-rooms" class="remaining-count">
+            Rooms remaining today: 0
+          </div>
+
+          <div id="reset-countdown" class="reset-countdown">
+            <div class="reset-label">Limit resets in:</div>
+            <div class="countdown-display">
+              <span id="countdown-time">--:--:--</span>
+            </div>
+            <div class="reset-time-display">
+              <span id="exact-reset-time">at --:-- --</span>
+            </div>
+          </div>
+
+          <div class="limit-benefits">
+            <h4>Login for unlimited access:</h4>
+            <ul>
+              <li>✅ Unlimited rooms per day</li>
+              <li>✅ Rooms never expire</li>
+              <li>✅ 500MB file sizes (10GB with Premium 👑)</li>
+              <li>✅ Full speed transfers (High-speed with Premium 🚀)</li>
+              <li>✅ Room history tracking</li>
+              <li>✅ Priority support with Premium</li>
+            </ul>
+          </div>
+
+          <div class="modal-actions">
+            <button
+              id="limit-login-btn"
+              class="btn-primary"
+              onclick="showModal('login-modal'); hideModal('room-limit-modal');"
+            >
+              Login Now
+            </button>
+            <button
+              id="limit-register-btn"
+              class="btn-secondary"
+              onclick="showModal('register-modal'); hideModal('room-limit-modal');"
+            >
+              Create Account
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Premium Upgrade Modal -->
+    <div id="premium-modal" class="modal hidden">
+      <div class="modal-content premium-modal">
+        <div class="modal-header">
+          <h3>👑 Upgrade to Premium</h3>
+          <button class="close-modal" data-modal="premium-modal">×</button>
+        </div>
+        <div class="premium-content">
+          <div class="premium-hero">
+            <div class="premium-badge">⭐ RECOMMENDED</div>
+            <h2>Premium Plan</h2>
+            <p class="premium-subtitle">
+              Unlock the full power of P2P file sharing
+            </p>
+          </div>
+
+          <div class="premium-features">
+            <h4>What You Get:</h4>
+            <ul class="premium-feature-list">
+              <li>
+                <span class="feature-icon">🚀</span>
+                <div class="feature-details">
+                  <strong>10GB File Sizes</strong>
+                  <p>Send massive files up to 10GB (vs 500MB free)</p>
+                </div>
+              </li>
+              <li>
+                <span class="feature-icon">⚡</span>
+                <div class="feature-details">
+                  <strong>High-Speed Transfers</strong>
+                  <p>Lightning-fast unlimited transfer speeds</p>
+                </div>
+              </li>
+              <li>
+                <span class="feature-icon">✨</span>
+                <div class="feature-details">
+                  <strong>All Free Features</strong>
+                  <p>Unlimited rooms, 24-hour duration, full controls</p>
+                </div>
+              </li>
+              <li>
+                <span class="feature-icon">🎯</span>
+                <div class="feature-details">
+                  <strong>Priority Support</strong>
+                  <p>Get help faster when you need it</p>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div class="premium-pricing">
+            <div class="price-tag">
+              <span class="price">$9.99</span>
+              <span class="period">/month</span>
+            </div>
+            <p class="trial-info">💳 Secure payment via Stripe</p>
+          </div>
+
+          <div class="premium-actions">
+            <button id="start-premium-trial-btn" class="btn primary large">
+              Subscribe Now
+            </button>
+            <button class="btn secondary large" data-modal="premium-modal">
+              Maybe Later
+            </button>
+          </div>
+
+          <p class="premium-note">
+            🔒 Secure payment processing powered by Stripe. Cancel anytime.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Payment Success Screen -->
+    <div
+      id="payment-success"
+      class="payment-success hidden"
+      role="dialog"
+      aria-live="polite"
+    >
+      <div class="success-card">
+        <button
+          id="success-close-btn"
+          class="close-success"
+          aria-label="Close success screen"
+        >
+          ×
+        </button>
+        <div class="success-visual">
+          <svg class="success-ring" viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="ring-bg" cx="32" cy="32" r="28" />
+            <circle class="ring-progress" cx="32" cy="32" r="28" />
+            <polyline class="ring-check" points="18 34 28 44 46 22" />
+          </svg>
+          <svg class="success-confetti" viewBox="0 0 120 60" aria-hidden="true">
+            <circle class="spark spark-1" cx="20" cy="30" r="3" />
+            <circle class="spark spark-2" cx="60" cy="10" r="3" />
+            <circle class="spark spark-3" cx="100" cy="26" r="3" />
+            <rect
+              class="spark spark-4"
+              x="24"
+              y="10"
+              width="6"
+              height="6"
+              rx="1"
+            />
+            <rect
+              class="spark spark-5"
+              x="88"
+              y="40"
+              width="6"
+              height="6"
+              rx="1"
+            />
+          </svg>
+        </div>
+        <div class="success-body">
+          <p class="eyebrow">Payment Complete</p>
+          <h2>Premium unlocked</h2>
+          <p class="success-copy">
+            Your transfer limits are boosted. Enjoy 10GB files, high speed
+            lanes, and priority support.
+          </p>
+          <div class="success-meta">
+            <span class="pill" data-session-id>Session • …</span>
+            <span class="pill green" data-plan-status>Premium activated</span>
+            <span class="pill subtle" data-period-end>Renews monthly</span>
+          </div>
+          <div class="success-actions">
+            <button id="success-start-btn" class="btn primary">
+              Start sharing
+            </button>
+            <button id="success-profile-btn" class="btn ghost">
+              View profile
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Payment History Modal -->
+    <div id="payment-history-modal" class="modal hidden">
+      <div class="modal-content payment-history-modal">
+        <div class="modal-header">
+          <h3>💳 Subscription & Payment History</h3>
+          <button id="history-close-btn" class="close-btn">&times;</button>
+        </div>
+        <div class="payment-history-content">
+          <div id="current-subscription" class="subscription-card">
+            <div class="card-header">Current Subscription</div>
+            <div class="card-body">
+              <div class="payment-row">
+                <span class="label">Plan:</span>
+                <span id="history-plan" class="value">Premium</span>
+              </div>
+              <div class="payment-row">
+                <span class="label">Status:</span>
+                <span id="history-status" class="value status">Active</span>
+              </div>
+              <div class="payment-row">
+                <span class="label">Started:</span>
+                <span id="history-started" class="value">-</span>
+              </div>
+              <div class="payment-row">
+                <span class="label">Next Billing:</span>
+                <span id="history-next-billing" class="value date">-</span>
+              </div>
+              <div class="payment-row">
+                <span class="label">Amount:</span>
+                <span id="history-amount" class="value price"
+                  >$9.99 / month</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div id="payment-transactions" class="transactions-section">
+            <div class="section-header">Payment Transactions</div>
+            <div id="transactions-list" class="transactions-list">
+              <!-- Transactions will be populated here -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cancel Subscription Confirmation Modal -->
+    <div id="cancel-subscription-modal" class="modal hidden">
+      <div class="modal-content cancel-modal">
+        <div class="modal-header">
+          <h3>⚠️ Cancel Subscription?</h3>
+        </div>
+        <div class="cancel-content">
+          <p class="warning-text">
+            You're about to cancel your Premium subscription. You'll lose access
+            to:
+          </p>
+          <ul class="feature-list">
+            <li>✗ 10GB file transfer limits</li>
+            <li>✗ High-speed transfers</li>
+            <li>✗ Priority support</li>
+          </ul>
+          <p class="info-text">
+            You can continue using premium features until
+            <span id="cancel-until-date">-</span>.
+          </p>
+          <p class="small-text">
+            After that date, you'll be limited to free account features.
+          </p>
+          <div class="cancel-actions">
+            <button id="confirm-cancel-btn" class="btn danger">
+              Yes, Cancel Subscription
+            </button>
+            <button id="keep-subscription-btn" class="btn secondary">
+              Keep My Subscription
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error Modal (global) -->
+    <div id="error-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Error</h3>
+        </div>
+        <p id="error-message"></p>
+        <button id="error-ok-btn" class="btn primary">OK</button>
       </div>
     </div>
 

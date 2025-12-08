@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Premium Button Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      .test-container {
+        max-width: 600px;
+        margin: 0 auto;
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+        margin-bottom: 20px;
+      }
+      button {
+        padding: 12px 20px;
+        margin: 10px 0;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 16px;
+        width: 100%;
+      }
+      .primary {
+        background: linear-gradient(135deg, #4285f4, #34a853);
+        color: white;
+      }
+      .premium-btn {
+        background: linear-gradient(135deg, #fff9e6, #ffe8cc);
+        color: #f57c00;
+        font-weight: 600;
+      }
+      .log {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f9f9f9;
+        border-radius: 5px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      .log-entry {
+        margin: 5px 0;
+        padding: 5px;
+        font-size: 14px;
+        font-family: monospace;
+      }
+      .success {
+        color: green;
+      }
+      .error {
+        color: red;
+      }
+      .info {
+        color: blue;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="test-container">
+      <h1>🧪 Premium Button Test</h1>
+
+      <p><strong>Test Instructions:</strong></p>
+      <ol>
+        <li>Click the "Upgrade to Premium" button below</li>
+        <li>Check the console log for events</li>
+        <li>Verify the modal opens</li>
+      </ol>
+
+      <button id="upgrade-premium-btn" class="premium-btn">
+        👑 Upgrade to Premium
+      </button>
+
+      <button id="test-modal-btn" class="primary">
+        Test Show Modal Function
+      </button>
+
+      <div class="log" id="log">
+        <strong>Event Log:</strong>
+      </div>
+    </div>
+
+    <script>
+      const log = document.getElementById("log");
+
+      function addLog(message, type = "info") {
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        log.appendChild(entry);
+        log.scrollTop = log.scrollHeight;
+        console.log(message);
+      }
+
+      // Test button click
+      const upgradePremiumBtn = document.getElementById("upgrade-premium-btn");
+      const testModalBtn = document.getElementById("test-modal-btn");
+
+      if (upgradePremiumBtn) {
+        addLog("✅ Found upgrade-premium-btn in DOM", "success");
+
+        upgradePremiumBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          addLog("🖱️ Upgrade button CLICKED!", "success");
+          addLog(
+            "Event details: " +
+              JSON.stringify({
+                type: e.type,
+                target: e.target.id,
+                currentTarget: e.currentTarget.id,
+              }),
+            "info"
+          );
+
+          // Simulate showing modal
+          alert(
+            "✅ Button click working! In real app, this would open the premium modal."
+          );
+        });
+
+        // Test if button is visible and clickable
+        const rect = upgradePremiumBtn.getBoundingClientRect();
+        addLog(
+          `Button position: top=${rect.top}, left=${rect.left}, width=${rect.width}, height=${rect.height}`,
+          "info"
+        );
+
+        const computed = window.getComputedStyle(upgradePremiumBtn);
+        addLog(
+          `Button display: ${computed.display}, visibility: ${computed.visibility}, pointer-events: ${computed.pointerEvents}`,
+          "info"
+        );
+      } else {
+        addLog("❌ upgrade-premium-btn NOT found in DOM", "error");
+      }
+
+      testModalBtn.addEventListener("click", () => {
+        addLog("🧪 Test modal button clicked", "info");
+        const result = confirm("Modal test: Can you see this dialog?");
+        addLog(
+          result ? "✅ Modal test passed" : "❌ Modal test failed",
+          result ? "success" : "error"
+        );
+      });
+
+      // Log page load
+      addLog("📄 Page loaded successfully", "success");
+      addLog("🔍 Checking button functionality...", "info");
+    </script>
+  </body>
+</html>

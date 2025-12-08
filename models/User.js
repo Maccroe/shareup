@@ -50,6 +50,34 @@ const userSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  subscription: {
+    plan: {
+      type: String,
+      enum: ['free', 'premium'],
+      default: 'free'
+    },
+    startDate: {
+      type: Date,
+      default: null
+    },
+    endDate: {
+      type: Date,
+      default: null
+    },
+    status: {
+      type: String,
+      enum: ['active', 'expired', 'cancelled'],
+      default: 'active'
+    }
+  },
+  stripeCustomerId: {
+    type: String,
+    default: null
+  },
+  stripeSubscriptionId: {
+    type: String,
+    default: null
   }
 }, {
   timestamps: true
@@ -101,8 +129,27 @@ userSchema.methods.getPublicProfile = function () {
     email: this.email,
     avatar: this.avatar,
     lastLogin: this.lastLogin,
-    createdAt: this.createdAt
+    createdAt: this.createdAt,
+    subscription: this.subscription
   };
+};
+
+// Check if user has premium subscription
+userSchema.methods.isPremium = function () {
+  if (this.subscription.plan !== 'premium') return false;
+  if (this.subscription.status !== 'active') return false;
+  if (this.subscription.endDate && new Date() > this.subscription.endDate) return false;
+  return true;
+};
+
+// Get user's file size limit based on subscription
+userSchema.methods.getFileSizeLimit = function () {
+  return this.isPremium() ? 10 * 1024 * 1024 * 1024 : 500 * 1024 * 1024; // 10GB for premium, 500MB for free
+};
+
+// Get user's transfer speed tier
+userSchema.methods.getTransferSpeedTier = function () {
+  return this.isPremium() ? 'high' : 'standard';
 };
 
 module.exports = mongoose.model('User', userSchema);

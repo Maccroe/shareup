@@ -77,9 +77,24 @@ function updateUserUI(isLoggedIn) {
     }
 
     // Update file limit info for logged-in users
+    const isPremium = currentUser.subscription?.plan === 'premium' && currentUser.subscription?.status === 'active';
+
+    // Show/hide upgrade button based on premium status
+    const upgradePremiumBtn = document.getElementById('upgrade-premium-btn');
+    if (isPremium) {
+      upgradePremiumBtn.style.display = 'none';
+    } else {
+      upgradePremiumBtn.style.display = 'block';
+    }
+
     if (fileLimitInfo) {
-      fileLimitInfo.textContent = 'Logged in: Unlimited file sizes • Full speed transfers • 24-hour room persistence';
-      fileLimitInfo.classList.add('logged-in');
+      if (isPremium) {
+        fileLimitInfo.textContent = '👑 Premium: 10GB file sizes • High-speed transfers • Unlimited rooms';
+        fileLimitInfo.classList.add('logged-in', 'premium');
+      } else {
+        fileLimitInfo.textContent = 'Free Account: 500MB file sizes • Full speed transfers • Unlimited rooms';
+        fileLimitInfo.classList.add('logged-in');
+      }
     }
 
     // Load room history for logged-in users
@@ -123,11 +138,70 @@ function logout() {
   }
 }
 
+// Show premium upgrade modal
+function showPremiumModal() {
+  console.log('showPremiumModal called');
+
+  // Close user dropdown menu
+  const userDropdown = document.querySelector('.user-dropdown');
+  if (userDropdown) {
+    userDropdown.classList.remove('show');
+  }
+
+  showModal('premium-modal');
+}
+
+// Upgrade to premium with Stripe
+async function upgradeToPremium() {
+  const btn = document.getElementById('start-premium-trial-btn');
+  if (!btn) {
+    showNotification('Payment button unavailable. Please reload and try again.', 'error');
+    return;
+  }
+
+  const originalText = btn.textContent;
+
+  try {
+    // Show loading state
+    btn.disabled = true;
+    btn.textContent = 'Creating checkout session...';
+
+    const response = await fetch('/api/stripe/create-checkout-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.url) {
+      // Redirect to Stripe Checkout
+      btn.textContent = 'Redirecting to payment...';
+      window.location.href = data.url;
+    } else {
+      showNotification(data.error || 'Failed to create checkout session', 'error');
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  } catch (error) {
+    console.error('Premium upgrade error:', error);
+    showNotification('Failed to start checkout. Please try again.', 'error');
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
 // Initialize the application
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuthStatus();
   // Remove loading class to show auth UI
   document.body.classList.remove('loading');
+
+  // Check for payment success/cancel
+  await checkPaymentStatus();
+
   initializeSocket();
   setupEventListeners();
   setupAuthEventListeners();
@@ -135,6 +209,106 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Disable file selection until peer connection established
   setFileSelectionEnabled(false);
 });
+
+// Check payment status from URL parameters
+async function checkPaymentStatus() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const payment = urlParams.get('payment');
+  const sessionId = urlParams.get('session_id');
+
+  if (payment === 'success' && sessionId) {
+    await handlePaymentSuccess(sessionId);
+  } else if (payment === 'cancelled') {
+    // Payment cancelled
+    showNotification('Payment cancelled. You can try again anytime.', 'info');
+
+    // Clean URL
+    window.history.replaceState({}, document.title, '/');
+  }
+}
+
+async function handlePaymentSuccess(sessionId) {
+  try {
+    if (!authToken) {
+      showNotification('Log back in to finalize your upgrade.', 'info');
+      window.history.replaceState({}, document.title, '/');
+      return;
+    }
+
+    const response = await fetch('/api/stripe/confirm-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify({ sessionId })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      showNotification(data.error || 'Unable to confirm payment right now.', 'error');
+      window.history.replaceState({}, document.title, '/');
+      return;
+    }
+
+    if (data.user) {
+      currentUser = data.user;
+      window.currentUser = data.user;
+      updateUserUI(true);
+    } else {
+      // Refresh as fallback
+      await checkAuthStatus();
+    }
+
+    showPurchaseSuccess({ sessionId, subscription: data.subscription });
+  } catch (error) {
+    console.error('Payment confirmation failed:', error);
+    showNotification('Payment succeeded, but we could not refresh your account. Please contact support.', 'error');
+  }
+
+  // Clean URL
+  window.history.replaceState({}, document.title, '/');
+}
+
+function showPurchaseSuccess({ sessionId, subscription }) {
+  const successLayer = document.getElementById('payment-success');
+  if (!successLayer) return;
+
+  const sessionEl = successLayer.querySelector('[data-session-id]');
+  const planEl = successLayer.querySelector('[data-plan-status]');
+  const periodEl = successLayer.querySelector('[data-period-end]');
+
+  if (sessionEl && sessionId) {
+    sessionEl.textContent = `Session • ${sessionId.slice(-8)}`;
+  }
+
+  if (planEl) {
+    planEl.textContent = subscription?.plan ? `${subscription.plan} plan` : 'Premium activated';
+  }
+
+  if (periodEl && subscription?.endDate) {
+    const end = new Date(subscription.endDate);
+    // Format as DD/MM/YYYY
+    const day = String(end.getDate()).padStart(2, '0');
+    const month = String(end.getMonth() + 1).padStart(2, '0');
+    const year = end.getFullYear();
+    periodEl.textContent = `Renews ${day}/${month}/${year}`;
+  } else if (periodEl) {
+    periodEl.textContent = 'Renews monthly';
+  }
+
+  successLayer.classList.remove('hidden');
+  document.body.classList.add('success-open');
+}
+
+function hidePurchaseSuccess() {
+  const successLayer = document.getElementById('payment-success');
+  if (successLayer) {
+    successLayer.classList.add('hidden');
+  }
+  document.body.classList.remove('success-open');
+}
 
 // Socket.io initialization
 function initializeSocket() {
@@ -283,19 +457,29 @@ function initializeSocket() {
 
 // Event Listeners
 function setupEventListeners() {
+  // Helper function to safely add event listeners
+  const addListener = (id, event, handler) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener(event, handler);
+    } else {
+      console.warn(`Element with ID "${id}" not found for event "${event}"`);
+    }
+  };
+
   // Home screen buttons
-  document.getElementById('create-room-btn').addEventListener('click', createRoom);
-  document.getElementById('join-room-btn').addEventListener('click', () => showScreen('join'));
+  addListener('create-room-btn', 'click', createRoom);
+  addListener('join-room-btn', 'click', () => showScreen('join'));
 
   // Join screen
-  document.getElementById('join-submit-btn').addEventListener('click', joinRoom);
-  document.getElementById('back-from-join-btn').addEventListener('click', () => showScreen('home'));
-  document.getElementById('room-code').addEventListener('keypress', (e) => {
+  addListener('join-submit-btn', 'click', joinRoom);
+  addListener('back-from-join-btn', 'click', () => showScreen('home'));
+  addListener('room-code', 'keypress', (e) => {
     if (e.key === 'Enter') joinRoom();
   });
 
   // Room screen
-  document.getElementById('leave-room-btn').addEventListener('click', leaveRoom);
+  addListener('leave-room-btn', 'click', leaveRoom);
   // Wire up header delete button to delete current room
   const headerDeleteBtn = document.getElementById('delete-room-btn');
   if (headerDeleteBtn) {
@@ -322,16 +506,21 @@ function setupEventListeners() {
   const fileInput = document.getElementById('file-input');
   const dropZone = document.getElementById('file-drop-zone');
 
-  dropZone.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', handleFileSelection);
+  if (dropZone && fileInput) {
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', handleFileSelection);
 
-  // Drag and drop
-  dropZone.addEventListener('dragover', handleDragOver);
-  dropZone.addEventListener('dragleave', handleDragLeave);
-  dropZone.addEventListener('drop', handleFileDrop);
+    // Drag and drop
+    dropZone.addEventListener('dragover', handleDragOver);
+    dropZone.addEventListener('dragleave', handleDragLeave);
+    dropZone.addEventListener('drop', handleFileDrop);
+  }
 
   // Error modal
-  document.getElementById('error-ok-btn').addEventListener('click', hideError);
+  const errorOkBtn = document.getElementById('error-ok-btn');
+  if (errorOkBtn) {
+    errorOkBtn.addEventListener('click', hideError);
+  }
 
   // Prevent default drag behavior on the whole page
   document.addEventListener('dragover', (e) => e.preventDefault());
@@ -379,73 +568,183 @@ function setFileSelectionEnabled(enabled) {
 
 // Authentication event listeners
 function setupAuthEventListeners() {
+  // Helper to safely add listeners
+  const addListener = (id, event, handler) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener(event, handler);
+    }
+  };
+
   // Login/Register button listeners
-  document.getElementById('login-btn').addEventListener('click', () => showModal('login-modal'));
-  document.getElementById('register-btn').addEventListener('click', () => showModal('register-modal'));
+  addListener('login-btn', 'click', () => showModal('login-modal'));
+  addListener('register-btn', 'click', () => showModal('register-modal'));
 
   // Modal close buttons
-  document.getElementById('login-close-btn').addEventListener('click', () => hideModal('login-modal'));
-  document.getElementById('register-close-btn').addEventListener('click', () => hideModal('register-modal'));
-  document.getElementById('profile-close-btn').addEventListener('click', () => hideModal('profile-modal'));
+  addListener('login-close-btn', 'click', () => hideModal('login-modal'));
+  addListener('register-close-btn', 'click', () => hideModal('register-modal'));
+  addListener('profile-close-btn', 'click', () => hideModal('profile-modal'));
+
+  // Premium modal close buttons
+  document.querySelectorAll('[data-modal="premium-modal"]').forEach(btn => {
+    btn.addEventListener('click', () => hideModal('premium-modal'));
+  });
 
   // Switch between login and register
-  document.getElementById('show-register-btn').addEventListener('click', () => {
+  addListener('show-register-btn', 'click', () => {
     hideModal('login-modal');
     showModal('register-modal');
   });
-  document.getElementById('show-login-btn').addEventListener('click', () => {
+  addListener('show-login-btn', 'click', () => {
     hideModal('register-modal');
     showModal('login-modal');
   });
 
   // Form submissions
-  document.getElementById('login-form').addEventListener('submit', handleLogin);
-  document.getElementById('register-form').addEventListener('submit', handleRegister);
+  addListener('login-form', 'submit', handleLogin);
+  addListener('register-form', 'submit', handleRegister);
 
   // User menu actions
-  document.getElementById('user-profile-btn').addEventListener('click', showProfile);
-  document.getElementById('user-logout-btn').addEventListener('click', logout);
+  const userProfileBtn = document.getElementById('user-profile-btn');
+  const upgradePremiumBtn = document.getElementById('upgrade-premium-btn');
+  const userLogoutBtn = document.getElementById('user-logout-btn');
+  const startPremiumTrialBtn = document.getElementById('start-premium-trial-btn');
+
+  if (userProfileBtn) {
+    userProfileBtn.addEventListener('click', showProfile);
+  }
+
+  if (upgradePremiumBtn) {
+    upgradePremiumBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('Upgrade button clicked');
+
+      // Close the dropdown first
+      const userDropdown = document.querySelector('.user-dropdown');
+      if (userDropdown) {
+        userDropdown.classList.remove('show');
+      }
+
+      // Then show the premium modal
+      setTimeout(() => {
+        showPremiumModal();
+      }, 100);
+    });
+  }
+
+  if (userLogoutBtn) {
+    userLogoutBtn.addEventListener('click', logout);
+  }
+
+  // Premium upgrade
+  if (startPremiumTrialBtn) {
+    startPremiumTrialBtn.addEventListener('click', upgradeToPremium);
+  }
+
+  // Payment history and cancel subscription
+  addListener('view-payment-history-btn', 'click', showPaymentHistory);
+  addListener('cancel-subscription-btn', 'click', showCancelConfirm);
+  addListener('confirm-cancel-btn', 'click', confirmCancelSubscription);
+  addListener('keep-subscription-btn', 'click', () => hideModal('cancel-subscription-modal'));
+  addListener('history-close-btn', 'click', () => hideModal('payment-history-modal'));
 
   // Avatar upload
-  document.getElementById('change-avatar-btn').addEventListener('click', () => {
-    document.getElementById('avatar-input').click();
-  });
-  document.getElementById('avatar-input').addEventListener('change', handleAvatarUpload);
+  const changeAvatarBtn = document.getElementById('change-avatar-btn');
+  const avatarInput = document.getElementById('avatar-input');
+
+  if (changeAvatarBtn && avatarInput) {
+    changeAvatarBtn.addEventListener('click', () => {
+      avatarInput.click();
+    });
+    avatarInput.addEventListener('change', handleAvatarUpload);
+  }
 
   // User avatar click to open dropdown
   const userMenu = document.getElementById('user-menu');
-  userMenu.addEventListener('click', () => {
-    userMenu.querySelector('.user-dropdown').classList.toggle('show');
-  });
+  const userInfo = userMenu ? userMenu.querySelector('.user-info') : null;
+  const userDropdown = userMenu ? userMenu.querySelector('.user-dropdown') : null;
 
-  // Close dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!userMenu.contains(e.target)) {
-      userMenu.querySelector('.user-dropdown').classList.remove('show');
-    }
-  });
+  if (userMenu && userInfo && userDropdown) {
+    userInfo.addEventListener('click', (e) => {
+      e.stopPropagation();
+      userDropdown.classList.toggle('show');
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!userMenu.contains(e.target)) {
+        userDropdown.classList.remove('show');
+      }
+    });
+
+    // Don't close dropdown when clicking inside it
+    userDropdown.addEventListener('click', () => {
+      // Let the button handlers work, but don't close dropdown yet
+      // It will close after the modal opens
+    });
+  } else {
+    console.warn('User menu not found. Skipping dropdown listeners.');
+  }
 
   // Room expiration modal
-  document.getElementById('expired-login-btn').addEventListener('click', () => {
-    hideModal('room-expired-modal');
-    showScreen('home'); // Go to home first
-    showModal('login-modal');
-  });
-  document.getElementById('expired-close-btn').addEventListener('click', () => {
-    hideModal('room-expired-modal');
+  const expiredLoginBtn = document.getElementById('expired-login-btn');
+  const expiredCloseBtn = document.getElementById('expired-close-btn');
+  const expiredContinueBtn = document.getElementById('expired-cancel-btn');
+
+  if (expiredLoginBtn) {
+    expiredLoginBtn.addEventListener('click', () => {
+      hideModal('room-expired-modal');
+      showScreen('home'); // Go to home first
+      showModal('login-modal');
+    });
+  }
+
+  if (expiredCloseBtn) {
+    expiredCloseBtn.addEventListener('click', () => {
+      hideModal('room-expired-modal');
+      showScreen('home');
+    });
+  }
+
+  if (expiredContinueBtn) {
+    expiredContinueBtn.addEventListener('click', () => {
+      hideModal('room-expired-modal');
+      showScreen('home');
+    });
+  }
+
+  // Payment success overlay
+  addListener('success-close-btn', 'click', hidePurchaseSuccess);
+  addListener('success-start-btn', 'click', () => {
+    hidePurchaseSuccess();
     showScreen('home');
+  });
+  addListener('success-profile-btn', 'click', () => {
+    hidePurchaseSuccess();
+    showProfile();
   });
 }
 
 // Modal management
 function showModal(modalId) {
-  document.getElementById(modalId).classList.remove('hidden');
-  document.body.style.overflow = 'hidden';
+  console.log('showModal called with:', modalId);
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    console.log('Modal shown:', modalId);
+  } else {
+    console.error('Modal not found:', modalId);
+  }
 }
 
 function hideModal(modalId) {
   document.getElementById(modalId).classList.add('hidden');
   document.body.style.overflow = 'auto';
+  if (modalId === 'room-limit-modal') {
+    stopResetCountdown();
+  }
 }
 
 // Authentication handlers
@@ -657,6 +956,12 @@ function updateAvatarDisplay(avatarUrl) {
 async function showProfile() {
   if (!currentUser || !authToken) return;
 
+  // Close dropdown menu
+  const userDropdown = document.querySelector('.user-dropdown');
+  if (userDropdown) {
+    userDropdown.classList.remove('show');
+  }
+
   try {
     const response = await fetch('/api/auth/profile', {
       headers: {
@@ -680,6 +985,20 @@ async function showProfile() {
         const profileAvatar = document.getElementById('profile-avatar');
         profileAvatar.style.backgroundImage = '';
         profileAvatar.textContent = '👤';
+      }
+
+      // Show premium badge if user has premium subscription
+      const premiumSection = document.getElementById('premium-section');
+      if (data.user.subscription?.plan === 'premium' && data.user.subscription?.status === 'active') {
+        premiumSection.classList.remove('hidden');
+        document.getElementById('premium-start').textContent = new Date(data.user.subscription.startDate).toLocaleDateString();
+        const endDate = new Date(data.user.subscription.endDate);
+        const day = String(endDate.getDate()).padStart(2, '0');
+        const month = String(endDate.getMonth() + 1).padStart(2, '0');
+        const year = endDate.getFullYear();
+        document.getElementById('premium-end').textContent = `${day}/${month}/${year}`;
+      } else {
+        premiumSection.classList.add('hidden');
       }
 
       // Show recent rooms (creator, participants, room id)
@@ -732,6 +1051,111 @@ async function showProfile() {
     showError('Failed to load profile');
   }
 }
+
+// Show payment history
+async function showPaymentHistory() {
+  if (!currentUser || !authToken) return;
+
+  try {
+    const response = await fetch('/api/stripe/subscription-status', {
+      headers: {
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      const subscription = data.subscription;
+
+      // Populate current subscription
+      document.getElementById('history-plan').textContent = subscription?.plan || 'Free';
+      document.getElementById('history-status').textContent = subscription?.status || 'inactive';
+
+      if (subscription?.startDate) {
+        document.getElementById('history-started').textContent = new Date(subscription.startDate).toLocaleDateString();
+      }
+
+      if (subscription?.endDate) {
+        const endDate = new Date(subscription.endDate);
+        const day = String(endDate.getDate()).padStart(2, '0');
+        const month = String(endDate.getMonth() + 1).padStart(2, '0');
+        const year = endDate.getFullYear();
+        document.getElementById('history-next-billing').textContent = `${day}/${month}/${year}`;
+      }
+
+      // For now, show a single transaction (can be extended with more history)
+      const transactionsList = document.getElementById('transactions-list');
+      if (subscription?.startDate) {
+        transactionsList.innerHTML = `
+          <div class="transaction-item">
+            <div class="transaction-info">
+              <h4>Premium Subscription Charge</h4>
+              <p>Monthly subscription activated</p>
+            </div>
+            <div class="transaction-amount">
+              <div class="amount">$9.99</div>
+              <div class="date">${new Date(subscription.startDate).toLocaleDateString()}</div>
+            </div>
+          </div>
+        `;
+      } else {
+        transactionsList.innerHTML = '<div class="no-transactions">No transactions yet</div>';
+      }
+
+      showModal('payment-history-modal');
+    }
+  } catch (error) {
+    console.error('Payment history error:', error);
+    showError('Failed to load payment history');
+  }
+}
+
+// Cancel subscription with confirmation
+async function showCancelConfirm() {
+  if (!currentUser?.subscription?.endDate) return;
+
+  const endDate = new Date(currentUser.subscription.endDate);
+  const day = String(endDate.getDate()).padStart(2, '0');
+  const month = String(endDate.getMonth() + 1).padStart(2, '0');
+  const year = endDate.getFullYear();
+
+  document.getElementById('cancel-until-date').textContent = `${day}/${month}/${year}`;
+  showModal('cancel-subscription-modal');
+}
+
+// Confirm cancel subscription
+async function confirmCancelSubscription() {
+  if (!authToken) return;
+
+  try {
+    const response = await fetch('/api/stripe/cancel-subscription', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken}`
+      }
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      showNotification('✅ Subscription cancelled. You can use premium features until your renewal date.', 'success');
+
+      // Update user status
+      await checkAuthStatus();
+      updateUserUI(true);
+
+      hideModal('cancel-subscription-modal');
+      hideModal('payment-history-modal');
+    } else {
+      showNotification(data.error || 'Failed to cancel subscription', 'error');
+    }
+  } catch (error) {
+    console.error('Cancel subscription error:', error);
+    showNotification('Failed to cancel subscription. Please try again.', 'error');
+  }
+}
+
 
 // Room timer functions
 function startRoomTimer(expirationTime) {
@@ -930,28 +1354,27 @@ function showRoomLimitModal(message, remaining, resetTime) {
   }
 
   showModal('room-limit-modal');
-
-  // Auto-hide after 10 seconds (longer to see countdown)
-  setTimeout(() => {
-    stopResetCountdown();
-    hideModal('room-limit-modal');
-  }, 10000);
 }
 
 function createRoomLimitModal() {
   const modalHTML = `
     <div id="room-limit-modal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Daily Room Limit Reached</h3>
-          <span class="close" onclick="hideModal('room-limit-modal')">&times;</span>
+      <div class="modal-content limit-modal">
+        <div class="modal-header limit-header">
+          <div class="limit-title">
+            <span class="limit-icon">⚠️</span>
+            <div>
+              <p class="limit-subtitle">Daily Room Limit</p>
+              <h3>Limit Reached</h3>
+            </div>
+          </div>
+          <button class="close-modal" aria-label="Close" onclick="hideModal('room-limit-modal')">×</button>
         </div>
         <div class="modal-body">
-          <div class="limit-icon">⚠️</div>
           <p id="limit-message" class="limit-message"></p>
-          <p id="remaining-rooms" class="remaining-count"></p>
+          <div id="remaining-rooms" class="remaining-count"></div>
           <div id="reset-countdown" class="reset-countdown">
-            <h4>Limit resets in:</h4>
+            <div class="reset-label">Limit resets in:</div>
             <div class="countdown-display">
               <span id="countdown-time">--:--:--</span>
             </div>
@@ -964,9 +1387,10 @@ function createRoomLimitModal() {
             <ul>
               <li>✅ Unlimited rooms per day</li>
               <li>✅ Rooms never expire</li>
-              <li>✅ Unlimited file sizes (500MB)</li>
-              <li>✅ Full speed transfers</li>
+              <li>✅ 500MB file sizes (10GB with Premium 👑)</li>
+              <li>✅ Full speed transfers (High-speed with Premium 🚀)</li>
               <li>✅ Room history tracking</li>
+              <li>✅ Priority support with Premium</li>
             </ul>
           </div>
           <div class="modal-actions">
@@ -1216,27 +1640,36 @@ function handleFileDrop(event) {
 }
 
 function addSelectedFiles(files) {
-  if (!isPeerConnected()) {
-    showError('Cannot select files until connected.');
-    return;
-  }
-
-  // Different limits for anonymous vs logged-in users
-  const maxFileSize = currentUser ? (500 * 1024 * 1024) : (30 * 1024 * 1024); // 500MB for logged-in, 30MB for anonymous
-  const maxFileSizeText = currentUser ? '500MB' : '30MB';
+  console.log('addSelectedFiles called with', files.length, 'files');
+  // Different limits for anonymous vs logged-in users vs premium users
+  const isPremium = currentUser && currentUser.subscription?.plan === 'premium' && currentUser.subscription?.status === 'active';
+  const maxFileSize = isPremium ? (10 * 1024 * 1024 * 1024) : currentUser ? (500 * 1024 * 1024) : (30 * 1024 * 1024); // 10GB for premium, 500MB for free, 30MB for anonymous
+  const maxFileSizeText = isPremium ? '10GB' : currentUser ? '500MB' : '30MB';
+  console.log('User type:', currentUser ? 'logged-in' : 'anonymous', 'Max size:', maxFileSizeText);
   const validFiles = [];
 
   for (const file of files) {
+    console.log('Checking file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB', 'Limit:', maxFileSizeText);
     if (file.size > maxFileSize) {
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+      const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB}GB` : `${fileSizeMB}MB`;
+
       if (!currentUser) {
-        showError(`File "${file.name}" (${fileSizeMB}MB) is too large. Anonymous users are limited to ${maxFileSizeText}. Login for unlimited file sizes.`);
+        showError(`File "${file.name}" (${displaySize}) is too large. Anonymous users are limited to ${maxFileSizeText}. Login for higher limits.`);
+      } else if (!isPremium) {
+        showError(`File "${file.name}" (${displaySize}) exceeds ${maxFileSizeText} limit. Upgrade to Premium for 10GB file sizes.`);
       } else {
         showError(`File "${file.name}" is too large. Maximum size is ${maxFileSizeText}.`);
       }
       continue;
     }
     validFiles.push(file);
+  }
+
+  if (!isPeerConnected()) {
+    showError('Cannot select files until connected.');
+    return;
   }
 
   selectedFiles.push(...validFiles);
@@ -1928,12 +2361,48 @@ function showError(message, isError = true) {
     showSuccess(message);
     return;
   }
-  document.getElementById('error-message').textContent = message;
-  document.getElementById('error-modal').classList.remove('hidden');
+  console.log('Showing error:', message);
+  const errorModal = document.getElementById('error-modal');
+  const errorMsg = document.getElementById('error-message');
+  if (!errorModal) {
+    console.error('Error modal not found');
+    alert(message);
+    return;
+  }
+  if (errorMsg) {
+    errorMsg.textContent = message;
+  }
+  // Force visibility in case CSS is overridden or cached
+  const forceStyle = {
+    position: 'fixed',
+    inset: '0',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(0,0,0,0.6)',
+    zIndex: '20000',
+    visibility: 'visible',
+    opacity: '1',
+    pointerEvents: 'auto'
+  };
+  Object.assign(errorModal.style, forceStyle);
+  showModal('error-modal');
 }
 
 function hideError() {
-  document.getElementById('error-modal').classList.add('hidden');
+  const modal = document.getElementById('error-modal');
+  if (!modal) return;
+  hideModal('error-modal');
+  modal.style.position = '';
+  modal.style.inset = '';
+  modal.style.display = '';
+  modal.style.alignItems = '';
+  modal.style.justifyContent = '';
+  modal.style.background = '';
+  modal.style.zIndex = '';
+  modal.style.visibility = '';
+  modal.style.opacity = '';
+  modal.style.pointerEvents = '';
 }
 
 function showSuccess(message) {

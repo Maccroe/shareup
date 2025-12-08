@@ -26,7 +26,7 @@
         background: white;
         border-radius: 20px;
         box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-        overflow: hidden;
+        overflow: visible;
       }
 
       .header {
@@ -72,9 +72,10 @@
 
       .comparison-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 30px;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 25px;
         margin-bottom: 50px;
+        padding-top: 20px;
       }
 
       .user-type-card {
@@ -93,6 +94,33 @@
       .user-type-card.logged-in {
         border: 3px solid #4caf50;
         background: linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%);
+      }
+
+      .user-type-card.premium {
+        border: 3px solid #ffd700;
+        background: linear-gradient(135deg, #fff9e6 0%, #ffe9b3 100%);
+        position: relative;
+        overflow: visible;
+      }
+
+      .user-type-card.premium::before {
+        content: "⭐ RECOMMENDED";
+        position: absolute;
+        top: -15px;
+        right: 20px;
+        background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+        color: #333;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        box-shadow: 0 2px 8px rgba(255, 215, 0, 0.4);
+        z-index: 10;
+      }
+
+      .user-type-card.premium .user-type-title {
+        color: #f57c00;
       }
 
       .user-type-header {
@@ -232,7 +260,7 @@
 
       .comparison-row {
         display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-columns: 1.5fr 1fr 1fr 1fr;
         border-bottom: 1px solid #e0e0e0;
       }
 
@@ -263,6 +291,12 @@
       .logged-in-value {
         background: #e8f5e8;
         color: #2e7d32;
+      }
+
+      .premium-value {
+        background: #fff9e6;
+        color: #f57c00;
+        font-weight: 700;
       }
 
       .back-link {
@@ -326,8 +360,8 @@
         }
 
         .comparison-row {
-          grid-template-columns: 2fr 1fr 1fr;
-          min-width: 400px; /* Ensures table doesn't get too cramped */
+          grid-template-columns: 2fr 1fr 1fr 1fr;
+          min-width: 600px; /* Enable horizontal scrolling */
         }
 
         .comparison-cell {
@@ -398,7 +432,7 @@
           line-height: 1.2;
         }
 
-        /* Extra small screens - stack table differently */
+        /* Extra small screens - horizontal scroll enabled */
         .feature-comparison-table {
           margin-top: 20px;
         }
@@ -409,8 +443,8 @@
         }
 
         .comparison-row {
-          grid-template-columns: 1.8fr 1fr 1fr;
-          min-width: 320px;
+          grid-template-columns: 1.8fr 1fr 1fr 1fr;
+          min-width: 500px; /* Enable horizontal scrolling */
         }
 
         .comparison-cell {
@@ -425,7 +459,7 @@
 
         /* Horizontal scroll hint */
         .feature-comparison-table::after {
-          content: "← Scroll horizontally to see all features →";
+          content: "← Swipe to see all features →";
           display: block;
           text-align: center;
           padding: 10px;
@@ -456,20 +490,22 @@
   <body>
     <div class="container">
       <div class="header">
-        <a href="/" class="back-link">← Back to App</a>
-        <h1>ShareUp Account Benefits</h1>
+        <a href="/" class="back-link">← Back to ShareUp</a>
+        <h1>ShareUp Plans & Features</h1>
         <p>
-          Compare what you get as an anonymous user vs. creating a free account
+          Compare Anonymous, Free, and Premium plans to find what's right for
+          you
         </p>
       </div>
 
       <div class="comparison-container">
         <div class="intro-section">
-          <h2>Why Create an Account?</h2>
+          <h2>Choose Your ShareUp Experience</h2>
           <p>
-            ShareUp works great for everyone, but creating a free account
-            unlocks unlimited features and removes all restrictions. See exactly
-            what you get with each option below.
+            ShareUp offers flexible options for everyone. Start for free, create
+            an account for unlimited features, or upgrade to Premium for maximum
+            file sizes and high-speed transfers. See exactly what you get with
+            each plan below.
           </p>
         </div>
 
@@ -587,6 +623,83 @@
               </li>
             </ul>
           </div>
+
+          <div class="user-type-card premium">
+            <div class="user-type-header">
+              <div class="user-type-icon">👑</div>
+              <div class="user-type-title">Premium User</div>
+            </div>
+            <ul class="features-list">
+              <li>
+                <span class="feature-icon">🏠</span>
+                <span class="feature-text benefit"
+                  >Unlimited rooms per day</span
+                >
+              </li>
+              <li>
+                <span class="feature-icon">⏰</span>
+                <span class="feature-text benefit"
+                  >24-hour room persistence</span
+                >
+              </li>
+              <li>
+                <span class="feature-icon">📁</span>
+                <span
+                  class="feature-text benefit"
+                  style="font-weight: 700; color: #f57c00"
+                  >10GB file size limit</span
+                >
+              </li>
+              <li>
+                <span class="feature-icon">🚀</span>
+                <span
+                  class="feature-text benefit"
+                  style="font-weight: 700; color: #f57c00"
+                  >High-speed transfers (unlimited)</span
+                >
+              </li>
+              <li>
+                <span class="feature-icon">⏸️</span>
+                <span class="feature-text benefit"
+                  >Transfer controls (pause/resume/cancel)</span
+                >
+              </li>
+              <li>
+                <span class="feature-icon">🎛️</span>
+                <span class="feature-text benefit"
+                  >Bulk transfer actions (pause all, cancel all)</span
+                >
+              </li>
+              <li>
+                <span class="feature-icon">📊</span>
+                <span class="feature-text benefit">Room history & rejoin</span>
+              </li>
+              <li>
+                <span class="feature-icon">🗑️</span>
+                <span class="feature-text benefit">Room deletion control</span>
+              </li>
+              <li>
+                <span class="feature-icon">🖼️</span>
+                <span class="feature-text benefit"
+                  >Custom avatar via Cloudinary</span
+                >
+              </li>
+              <li>
+                <span class="feature-icon">🔒</span>
+                <span class="feature-text benefit"
+                  >Secure account with JWT auth</span
+                >
+              </li>
+              <li>
+                <span class="feature-icon">⭐</span>
+                <span
+                  class="feature-text benefit"
+                  style="font-weight: 700; color: #f57c00"
+                  >Priority support</span
+                >
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div class="feature-comparison-table">
@@ -594,22 +707,26 @@
           <div class="comparison-row">
             <div class="comparison-cell feature-name">Feature</div>
             <div class="comparison-cell feature-name">Anonymous</div>
-            <div class="comparison-cell feature-name">Logged-in</div>
+            <div class="comparison-cell feature-name">Free Account</div>
+            <div class="comparison-cell feature-name">Premium</div>
           </div>
           <div class="comparison-row">
             <div class="comparison-cell feature-name">Daily Room Limit</div>
             <div class="comparison-cell anonymous-value">5 rooms</div>
             <div class="comparison-cell logged-in-value">Unlimited</div>
+            <div class="comparison-cell premium-value">Unlimited</div>
           </div>
           <div class="comparison-row">
             <div class="comparison-cell feature-name">Room Duration</div>
             <div class="comparison-cell anonymous-value">2 minutes</div>
             <div class="comparison-cell logged-in-value">24 hours</div>
+            <div class="comparison-cell premium-value">24 hours</div>
           </div>
           <div class="comparison-row">
             <div class="comparison-cell feature-name">File Size Limit</div>
             <div class="comparison-cell anonymous-value">30MB</div>
             <div class="comparison-cell logged-in-value">500MB</div>
+            <div class="comparison-cell premium-value">10GB 🚀</div>
           </div>
           <div class="comparison-row">
             <div class="comparison-cell feature-name">Transfer Speed</div>
@@ -617,35 +734,41 @@
               Very Limited (0.03 MB/s)
             </div>
             <div class="comparison-cell logged-in-value">Full Speed</div>
+            <div class="comparison-cell premium-value">High Speed ⚡</div>
           </div>
           <div class="comparison-row">
             <div class="comparison-cell feature-name">Transfer Controls</div>
             <div class="comparison-cell anonymous-value">❌ None</div>
             <div class="comparison-cell logged-in-value">✅ Full Control</div>
+            <div class="comparison-cell premium-value">✅ Full Control</div>
           </div>
           <div class="comparison-row">
             <div class="comparison-cell feature-name">Room History</div>
             <div class="comparison-cell anonymous-value">❌ None</div>
             <div class="comparison-cell logged-in-value">✅ Complete</div>
+            <div class="comparison-cell premium-value">✅ Complete</div>
           </div>
           <div class="comparison-row">
             <div class="comparison-cell feature-name">Custom Avatar</div>
             <div class="comparison-cell anonymous-value">❌ No</div>
             <div class="comparison-cell logged-in-value">✅ Yes</div>
+            <div class="comparison-cell premium-value">✅ Yes</div>
           </div>
           <div class="comparison-row">
             <div class="comparison-cell feature-name">Bypass Protection</div>
             <div class="comparison-cell anonymous-value">Advanced tracking</div>
             <div class="comparison-cell logged-in-value">N/A - No limits</div>
+            <div class="comparison-cell premium-value">N/A - No limits</div>
           </div>
         </div>
 
         <div class="upgrade-section">
-          <h3>Ready to Unlock Full Features?</h3>
+          <h3>Ready to Elevate Your Experience?</h3>
           <p>
-            Create a free account in seconds and enjoy unlimited file sharing
-            with no restrictions. Your data stays secure with JWT authentication
-            and encrypted storage.
+            Start with a free account for unlimited rooms and no daily limits.
+            Upgrade to Premium for 10GB file sizes and blazing-fast high-speed
+            transfers. Your data stays secure with JWT authentication and
+            encrypted storage.
           </p>
           <div class="cta-buttons">
             <a href="/" class="cta-button">Create Free Account</a>

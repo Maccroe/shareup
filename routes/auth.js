@@ -382,4 +382,85 @@ router.get('/verify', optionalAuth, async (req, res) => {
   }
 });
 
+// Get user subscription info
+router.get('/subscription', requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      subscription: user.subscription,
+      isPremium: user.isPremium(),
+      fileSizeLimit: user.getFileSizeLimit(),
+      transferSpeedTier: user.getTransferSpeedTier()
+    });
+  } catch (error) {
+    console.error('Get subscription error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Upgrade to premium (for now just a toggle - payment integration can be added later)
+router.post('/subscription/upgrade', requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.isPremium()) {
+      return res.status(400).json({ error: 'Already a premium user' });
+    }
+
+    // Set premium subscription (valid for 30 days)
+    user.subscription = {
+      plan: 'premium',
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+      status: 'active'
+    };
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Upgraded to premium successfully',
+      subscription: user.subscription,
+      isPremium: user.isPremium()
+    });
+  } catch (error) {
+    console.error('Upgrade subscription error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Cancel premium subscription
+router.post('/subscription/cancel', requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.isPremium()) {
+      return res.status(400).json({ error: 'Not a premium user' });
+    }
+
+    user.subscription.status = 'cancelled';
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Premium subscription cancelled',
+      subscription: user.subscription
+    });
+  } catch (error) {
+    console.error('Cancel subscription error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

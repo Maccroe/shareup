@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Debug Premium Button</title>
+    <style>
+      body {
+        font-family: "Courier New", monospace;
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 20px;
+        margin: 0;
+      }
+      .debug-panel {
+        max-width: 1000px;
+        margin: 0 auto;
+        background: #252526;
+        border: 1px solid #3e3e42;
+        border-radius: 8px;
+        padding: 20px;
+      }
+      h1 {
+        color: #4ec9b0;
+        margin-top: 0;
+      }
+      h2 {
+        color: #569cd6;
+        margin-top: 20px;
+        border-bottom: 1px solid #3e3e42;
+        padding-bottom: 5px;
+      }
+      .status {
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 5px;
+      }
+      .status.success {
+        background: #1a3d1a;
+        border-left: 4px solid #4ec9b0;
+      }
+      .status.error {
+        background: #3d1a1a;
+        border-left: 4px solid #f48771;
+      }
+      .status.warning {
+        background: #3d2a1a;
+        border-left: 4px solid #dcdcaa;
+      }
+      .status.info {
+        background: #1a2a3d;
+        border-left: 4px solid #569cd6;
+      }
+      button {
+        background: #0e639c;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+        font-size: 14px;
+      }
+      button:hover {
+        background: #1177bb;
+      }
+      .code {
+        background: #1e1e1e;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+        margin: 10px 0;
+      }
+      pre {
+        margin: 0;
+        color: #ce9178;
+      }
+      .test-section {
+        margin: 20px 0;
+        padding: 15px;
+        background: #2d2d30;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="debug-panel">
+      <h1>🔍 Premium Button Debug Panel</h1>
+      <p>
+        This page helps diagnose why the upgrade button might not be working.
+      </p>
+
+      <h2>📋 Checklist</h2>
+      <div id="checklist"></div>
+
+      <h2>🧪 Interactive Tests</h2>
+      <div class="test-section">
+        <button onclick="testButtonExists()">1. Check if Button Exists</button>
+        <button onclick="testEventListener()">2. Test Event Listener</button>
+        <button onclick="testModalExists()">3. Check if Modal Exists</button>
+        <button onclick="testShowModal()">4. Test showModal Function</button>
+        <button onclick="testUserMenu()">5. Test User Menu</button>
+        <button onclick="runAllTests()">▶️ Run All Tests</button>
+      </div>
+
+      <h2>📊 Test Results</h2>
+      <div id="results"></div>
+
+      <h2>💡 Recommendations</h2>
+      <div id="recommendations"></div>
+    </div>
+
+    <script>
+      const resultsDiv = document.getElementById("results");
+      const checklistDiv = document.getElementById("checklist");
+      const recommendationsDiv = document.getElementById("recommendations");
+
+      function log(message, type = "info") {
+        const div = document.createElement("div");
+        div.className = `status ${type}`;
+        div.innerHTML = message;
+        resultsDiv.appendChild(div);
+        console.log(`[${type.toUpperCase()}]`, message);
+      }
+
+      function clearResults() {
+        resultsDiv.innerHTML = "";
+        recommendationsDiv.innerHTML = "";
+      }
+
+      function addRecommendation(message) {
+        const div = document.createElement("div");
+        div.className = "status warning";
+        div.innerHTML = `💡 ${message}`;
+        recommendationsDiv.appendChild(div);
+      }
+
+      function testButtonExists() {
+        clearResults();
+        log("Testing if upgrade-premium-btn exists...", "info");
+
+        const btn = document.getElementById("upgrade-premium-btn");
+        if (btn) {
+          log("✅ Button found in DOM!", "success");
+          log(`Button text: "${btn.textContent}"`, "info");
+
+          const computed = window.getComputedStyle(btn);
+          log(`Display: ${computed.display}`, "info");
+          log(`Visibility: ${computed.visibility}`, "info");
+          log(`Pointer Events: ${computed.pointerEvents}`, "info");
+
+          const rect = btn.getBoundingClientRect();
+          log(`Position: top=${rect.top}px, left=${rect.left}px`, "info");
+          log(`Size: width=${rect.width}px, height=${rect.height}px`, "info");
+
+          if (rect.width === 0 || rect.height === 0) {
+            log("⚠️ Button has zero dimensions!", "warning");
+            addRecommendation(
+              "Button exists but has no size. Check if parent is hidden."
+            );
+          }
+        } else {
+          log("❌ Button NOT found in DOM!", "error");
+          addRecommendation(
+            "Button does not exist. Make sure user is logged in first."
+          );
+        }
+      }
+
+      function testEventListener() {
+        clearResults();
+        log("Testing event listener attachment...", "info");
+
+        const btn = document.getElementById("upgrade-premium-btn");
+        if (!btn) {
+          log("❌ Cannot test - button not found", "error");
+          return;
+        }
+
+        // Add test listener
+        let clicked = false;
+        const testHandler = () => {
+          clicked = true;
+          log("✅ Event listener triggered successfully!", "success");
+        };
+
+        btn.addEventListener("click", testHandler);
+        log("Event listener added", "info");
+
+        // Simulate click
+        log("Simulating button click...", "info");
+        btn.click();
+
+        setTimeout(() => {
+          if (clicked) {
+            log("✅ Click event fired successfully!", "success");
+          } else {
+            log("❌ Click event did not fire!", "error");
+            addRecommendation(
+              "Event is not triggering. Check for event.preventDefault() or stopPropagation() issues."
+            );
+          }
+          btn.removeEventListener("click", testHandler);
+        }, 100);
+      }
+
+      function testModalExists() {
+        clearResults();
+        log("Testing if premium-modal exists...", "info");
+
+        const modal = document.getElementById("premium-modal");
+        if (modal) {
+          log("✅ Modal found in DOM!", "success");
+
+          const computed = window.getComputedStyle(modal);
+          log(`Display: ${computed.display}`, "info");
+          log(`Visibility: ${computed.visibility}`, "info");
+
+          if (modal.classList.contains("hidden")) {
+            log('Modal has "hidden" class (expected)', "info");
+          } else {
+            log('⚠️ Modal does not have "hidden" class', "warning");
+          }
+        } else {
+          log("❌ Modal NOT found in DOM!", "error");
+          addRecommendation(
+            "Premium modal does not exist in HTML. Check index.html for premium-modal div."
+          );
+        }
+      }
+
+      function testShowModal() {
+        clearResults();
+        log("Testing showModal function...", "info");
+
+        if (typeof showModal === "function") {
+          log("✅ showModal function exists", "success");
+
+          try {
+            log('Calling showModal("premium-modal")...', "info");
+            showModal("premium-modal");
+
+            setTimeout(() => {
+              const modal = document.getElementById("premium-modal");
+              if (modal && !modal.classList.contains("hidden")) {
+                log("✅ Modal opened successfully!", "success");
+                // Close it
+                modal.classList.add("hidden");
+              } else {
+                log("❌ Modal did not open", "error");
+                addRecommendation(
+                  "showModal function exists but modal did not open. Check function implementation."
+                );
+              }
+            }, 100);
+          } catch (error) {
+            log(`❌ Error calling showModal: ${error.message}`, "error");
+          }
+        } else {
+          log("❌ showModal function not found!", "error");
+          addRecommendation(
+            "showModal function is not defined. Check if app.js loaded correctly."
+          );
+        }
+      }
+
+      function testUserMenu() {
+        clearResults();
+        log("Testing user menu state...", "info");
+
+        const userMenu = document.getElementById("user-menu");
+        if (userMenu) {
+          log("✅ User menu found", "success");
+
+          if (userMenu.classList.contains("hidden")) {
+            log("⚠️ User menu is hidden", "warning");
+            addRecommendation(
+              "User is not logged in. Log in first to see the upgrade button."
+            );
+          } else {
+            log("✅ User menu is visible (user logged in)", "success");
+          }
+
+          const dropdown = userMenu.querySelector(".user-dropdown");
+          if (dropdown) {
+            log("Dropdown found", "info");
+            if (dropdown.classList.contains("show")) {
+              log("✅ Dropdown is open", "success");
+            } else {
+              log("Dropdown is closed (click avatar to open)", "info");
+            }
+          }
+        } else {
+          log("❌ User menu not found", "error");
+        }
+      }
+
+      function runAllTests() {
+        clearResults();
+        recommendationsDiv.innerHTML = "";
+        log("🚀 Running all tests...", "info");
+        log("═══════════════════════════════════════", "info");
+
+        setTimeout(() => testButtonExists(), 100);
+        setTimeout(() => {
+          log("═══════════════════════════════════════", "info");
+          testEventListener();
+        }, 500);
+        setTimeout(() => {
+          log("═══════════════════════════════════════", "info");
+          testModalExists();
+        }, 1000);
+        setTimeout(() => {
+          log("═══════════════════════════════════════", "info");
+          testShowModal();
+        }, 1500);
+        setTimeout(() => {
+          log("═══════════════════════════════════════", "info");
+          testUserMenu();
+        }, 2000);
+        setTimeout(() => {
+          log("═══════════════════════════════════════", "info");
+          log("✅ All tests completed!", "success");
+        }, 2500);
+      }
+
+      // Initial checklist
+      function showChecklist() {
+        const items = [
+          { text: "Server running on port 3000", check: () => true },
+          {
+            text: "User is logged in",
+            check: () =>
+              !document
+                .getElementById("user-menu")
+                ?.classList.contains("hidden"),
+          },
+          {
+            text: "upgrade-premium-btn exists",
+            check: () => !!document.getElementById("upgrade-premium-btn"),
+          },
+          {
+            text: "premium-modal exists",
+            check: () => !!document.getElementById("premium-modal"),
+          },
+          {
+            text: "showModal function exists",
+            check: () => typeof showModal === "function",
+          },
+        ];
+
+        checklistDiv.innerHTML = items
+          .map((item) => {
+            const status = item.check() ? "✅" : "❌";
+            const className = item.check() ? "success" : "error";
+            return `<div class="status ${className}">${status} ${item.text}</div>`;
+          })
+          .join("");
+      }
+
+      // Run checklist on load
+      setTimeout(showChecklist, 500);
+
+      // Expose test functions to console
+      window.debugPremium = {
+        testButtonExists,
+        testEventListener,
+        testModalExists,
+        testShowModal,
+        testUserMenu,
+        runAllTests,
+      };
+
+      log(
+        "🔧 Debug panel loaded. Use buttons above or call debugPremium.runAllTests() in console.",
+        "info"
+      );
+    </script>
+  </body>
+</html>
