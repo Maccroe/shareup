@@ -89,10 +89,10 @@ function updateUserUI(isLoggedIn) {
 
     if (fileLimitInfo) {
       if (isPremium) {
-        fileLimitInfo.textContent = '👑 Premium: 10GB file sizes • High-speed transfers • Unlimited rooms';
+        fileLimitInfo.textContent = '👑 Premium: 10GB file sizes • Maximum speed transfers • Unlimited rooms';
         fileLimitInfo.classList.add('logged-in', 'premium');
       } else {
-        fileLimitInfo.textContent = 'Free Account: 500MB file sizes • Full speed transfers • Unlimited rooms';
+        fileLimitInfo.textContent = 'Free Account: 500MB file sizes • Up to 1MB/s transfers • Unlimited rooms';
         fileLimitInfo.classList.add('logged-in');
       }
     }
@@ -1966,7 +1966,16 @@ function outgoingFileProgress(id, percent, speed) {
   const ref = window.sentItemMap.get(id);
   if (!ref) return;
   ref.fill.style.width = `${Math.min(100, Math.max(0, percent))}%`;
-  ref.status.textContent = speed ? `Sending… ${Math.round(percent)}% · ${formatTransferSpeed(speed)}` : `Sending… ${Math.round(percent)}%`;
+  let etaText = '';
+  if (speed && speed > 0 && window.outgoingFileRefs && window.outgoingFileRefs.get(id)) {
+    const file = window.outgoingFileRefs.get(id);
+    const remainingBytes = file.size * (1 - percent / 100);
+    const etaSeconds = remainingBytes / speed;
+    const mins = Math.floor(etaSeconds / 60);
+    const secs = Math.max(0, Math.floor(etaSeconds % 60));
+    etaText = ` · ETA ${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+  ref.status.textContent = speed ? `Sending… ${Math.round(percent)}% · ${formatTransferSpeed(speed)}${etaText}` : `Sending… ${Math.round(percent)}%`;
 }
 
 function outgoingFileComplete(id) {

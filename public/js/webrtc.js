@@ -183,6 +183,9 @@ class WebRTCManager {
         case 'file-resumed':
           this.handleFileResumed(message);
           break;
+        case 'file-speed-update':
+          this.handleSpeedUpdate(message);
+          break;
       }
     } catch (error) {
       // Handle binary data (file chunks)
@@ -213,13 +216,19 @@ class WebRTCManager {
     this.currentTransfer.received += data.byteLength;
 
     const progress = (this.currentTransfer.received / this.currentTransfer.total) * 100;
-    const elapsed = Math.max(1, Date.now() - (this.currentTransfer.startTime || Date.now()));
-    const speed = this.currentTransfer.received / (elapsed / 1000);
+    // Use sender's transmitted speed if available (from speed-update message), otherwise calculate locally
+    const speed = this.currentTransfer.senderSpeed || (this.currentTransfer.received / (Math.max(1, Date.now() - (this.currentTransfer.startTime || Date.now())) / 1000));
     // Update per-file progress in Incoming list
     try {
       const key = this.currentTransfer.file.id || `${this.currentTransfer.file.name}:${this.currentTransfer.file.size}`;
       if (typeof incomingFileProgress === 'function') incomingFileProgress(key, progress, speed);
     } catch (_) { }
+  }
+
+  handleSpeedUpdate(message) {
+    if (!this.currentTransfer || !this.currentTransfer.receiving) return;
+    // Store sender's smoothed speed to use in progress display
+    this.currentTransfer.senderSpeed = message.speed;
   }
 
   handleFileComplete(message) {
@@ -299,13 +308,21 @@ class WebRTCManager {
     try { if (typeof outgoingFileMarkSending === 'function') outgoingFileMarkSending(outId); } catch (_) { }
     this.startedIds.add(outId);
 
-    // Send file in chunks with speed throttling for anonymous users
-    const chunkSize = 16384; // 16KB chunks
-    const isAnonymous = !window.currentUser; // Check if user is anonymous
+    // Send file in chunks with speed throttling by user tier
+    // Larger chunks help premium users reach higher throughput
+    const chunkSize = 131072; // 128KB chunks for premium-grade speed
+    const user = window.currentUser;
+    const isPremium = !!(user && user.subscription?.plan === 'premium' && user.subscription?.status === 'active');
+    const isLoggedIn = !!user;
+    // Premium gets no throttle cap (uncapped), logged-in limited to 1 MB/s, anonymous to 0.03 MB/s
+    const targetBytesPerSec = isPremium ? 0 // No throttle for premium - full speed
+      : isLoggedIn ? (1 * 1024 * 1024) // ~1 MB/s for logged-in
+        : (30 * 1024); // ~0.03 MB/s for anonymous
 
-    // Calculate throttle delay for 0.03 MB/s (30 KB/s) for anonymous users
-    // With 16KB chunks: 16384 bytes / 30720 bytes/s = ~0.53 seconds delay
-    const throttleDelay = isAnonymous ? 533 : 0; // 533ms delay for anonymous users (0.03 MB/s)
+    // Calculate delay per chunk to respect target throughput
+    const throttleDelay = targetBytesPerSec > 0
+      ? Math.max(0, Math.round((chunkSize / targetBytesPerSec) * 1000))
+      : 0; // 0 delay for premium (targetBytesPerSec === 0)
 
     let offset = 0;
     const startTime = Date.now();
@@ -314,7 +331,9 @@ class WebRTCManager {
       sending: true,
       file: file,
       total: file.size,
-      sent: 0
+      sent: 0,
+      avgSpeed: 0,
+      lastSpeedSendTime: 0
     };
 
     while (offset < file.size) {
@@ -345,12 +364,41 @@ class WebRTCManager {
 
       const progress = (offset / file.size) * 100;
       const elapsed = Math.max(1, Date.now() - startTime);
-      const speed = offset / (elapsed / 1000);
+      const instSpeed = offset / (elapsed / 1000);
+
+      // Smooth speed with exponential moving average for stable UI
+      const alpha = 0.15; // smoothing factor
+      if (!this.currentTransfer.avgSpeed) {
+        this.currentTransfer.avgSpeed = instSpeed;
+      } else {
+        this.currentTransfer.avgSpeed = (1 - alpha) * this.currentTransfer.avgSpeed + alpha * instSpeed;
+      }
+
+      const displaySpeed = this.currentTransfer.avgSpeed;
       try {
         if (typeof outgoingFileProgress === 'function') {
-          outgoingFileProgress(outId, progress, speed);
+          outgoingFileProgress(outId, progress, displaySpeed);
         }
       } catch (_) { }
+
+      // Send speed update to receiver every ~100ms for unified display
+      if (!this.currentTransfer.lastSpeedSendTime || Date.now() - this.currentTransfer.lastSpeedSendTime > 100) {
+        try {
+          const speedUpdate = {
+            type: 'file-speed-update',
+            fileId: outId,
+            speed: displaySpeed,
+            progress: progress
+          };
+          this.dataChannel.send(JSON.stringify(speedUpdate));
+          this.currentTransfer.lastSpeedSendTime = Date.now();
+        } catch (_) { }
+      }
+
+      // Throttle according to tier speed
+      if (throttleDelay > 0) {
+        await new Promise(resolve => setTimeout(resolve, throttleDelay));
+      }
     }
 
     // Send completion message
