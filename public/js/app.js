@@ -2575,10 +2575,11 @@ function displayRoomHistory(rooms) {
     const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
     const minutesLeft = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
 
-    const isCreator = room.role === 'creator';
+    const isCreator = !!(room.isCreator || room.role === 'creator');
     const roleIcon = isCreator ? '👑' : '👤';
     const roleText = isCreator ? 'Creator' : 'Participant';
 
+    console.log('Room history item:', room);
     console.log(`Room ${room.roomId}: role=${room.role}, isCreator=${isCreator}`);
 
     return `

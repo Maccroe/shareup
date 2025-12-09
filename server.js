@@ -1277,21 +1277,50 @@ io.on('connection', (socket) => {
       const validRooms = roomsFromDB.map(room => {
         const memoryRoom = rooms.get(room.roomId);
 
-        // Check if user is creator
-        const isCreator = room.creator?.toString() === socket.user._id.toString();
+        // Normalize IDs as strings for safe comparison
+        // Handle populated creator (object with _id) and raw ObjectId
+        let creatorId = null;
+        if (room.creator) {
+          if (room.creator._id) {
+            creatorId = room.creator._id.toString();
+          } else {
+            creatorId = room.creator.toString();
+          }
+        }
+        const userId = socket.user._id.toString();
+
+        // Primary check: explicit creator field matches current user
+        let isCreator = creatorId === userId;
+
+        // Fallback: if creator is missing, treat as creator when
+        // there's exactly one participant in history and it's this user.
+        if (!isCreator && !creatorId && Array.isArray(room.participantHistory)) {
+          const uniqueUsers = new Set(
+            room.participantHistory
+              .filter(p => p.user)
+              .map(p => p.user.toString())
+          );
+          if (uniqueUsers.size === 1 && uniqueUsers.has(userId)) {
+            isCreator = true;
+          }
+        }
 
         // Find user in participantHistory (for joinedAt date)
         const userInHistory = room.participantHistory ?
-          room.participantHistory.find(p => p.user?.toString() === socket.user._id.toString()) : null;
+          room.participantHistory.find(p => p.user && p.user.toString() === userId) : null;
 
-        return {
+        const summary = {
           roomId: room.roomId,
           role: isCreator ? 'creator' : 'participant',
+          isCreator,
           joinedAt: userInHistory?.joinedAt || room.createdAt,
           expiresAt: room.expiresAt,
           participants: memoryRoom ? memoryRoom.participants.length : room.participants.length,
           isActive: memoryRoom ? memoryRoom.participants.includes(socket.id) : false
         };
+
+        logger.verbose(`HISTORY ITEM -> room=${summary.roomId}, creatorId=${creatorId}, userId=${userId}, role=${summary.role}, isCreator=${summary.isCreator}`);
+        return summary;
       });
 
       logger.verbose(`Returning ${validRooms.length} valid rooms for user ${socket.user.username}`);
