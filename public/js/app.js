@@ -729,6 +729,45 @@ function setupAuthEventListeners() {
     hidePurchaseSuccess();
     showProfile();
   });
+
+  // Password toggle buttons
+  const togglePasswordButtons = document.querySelectorAll('.toggle-password');
+  togglePasswordButtons.forEach(button => {
+    button.addEventListener('click', function () {
+      const targetId = this.getAttribute('data-target');
+      const passwordInput = document.getElementById(targetId);
+      const eyeIcon = this.querySelector('.eye-icon');
+
+      if (passwordInput && eyeIcon) {
+        if (passwordInput.type === 'password') {
+          passwordInput.type = 'text';
+          eyeIcon.textContent = '🙈';
+        } else {
+          passwordInput.type = 'password';
+          eyeIcon.textContent = '👁️';
+        }
+      }
+    });
+  });
+
+  // Add input focus animations
+  const authInputs = document.querySelectorAll('.auth-input');
+  authInputs.forEach(input => {
+    input.addEventListener('focus', function () {
+      this.parentElement.classList.add('focused');
+    });
+
+    input.addEventListener('blur', function () {
+      this.parentElement.classList.remove('focused');
+      if (!this.value) {
+        this.classList.remove('error');
+      }
+    });
+
+    input.addEventListener('input', function () {
+      this.classList.remove('error');
+    });
+  });
 }
 
 // Modal management
@@ -758,11 +797,20 @@ async function handleLogin(e) {
 
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-password').value;
+  const submitBtn = e.target.querySelector('.auth-submit');
+  const usernameInput = document.getElementById('login-username');
+  const passwordInput = document.getElementById('login-password');
 
   if (!username || !password) {
+    if (!username) usernameInput.classList.add('error');
+    if (!password) passwordInput.classList.add('error');
     showError('Please fill in all fields');
     return;
   }
+
+  // Add loading state
+  submitBtn.classList.add('loading');
+  submitBtn.disabled = true;
 
   try {
     const response = await fetch('/api/auth/login', {
@@ -797,11 +845,16 @@ async function handleLogin(e) {
 
       showError('Login successful!', false); // Show as success message
     } else {
+      passwordInput.classList.add('error');
       showError(data.error || 'Login failed');
     }
   } catch (error) {
     console.error('Login error:', error);
+    passwordInput.classList.add('error');
     showError('Login failed. Please try again.');
+  } finally {
+    submitBtn.classList.remove('loading');
+    submitBtn.disabled = false;
   }
 }
 
@@ -811,6 +864,28 @@ async function handleRegister(e) {
   const username = document.getElementById('register-username').value.trim();
   const email = document.getElementById('register-email').value.trim();
   const password = document.getElementById('register-password').value;
+  const submitBtn = e.target.querySelector('.auth-submit');
+  const usernameInput = document.getElementById('register-username');
+  const emailInput = document.getElementById('register-email');
+  const passwordInput = document.getElementById('register-password');
+
+  if (!username || !email || !password) {
+    if (!username) usernameInput.classList.add('error');
+    if (!email) emailInput.classList.add('error');
+    if (!password) passwordInput.classList.add('error');
+    showError('Please fill in all fields');
+    return;
+  }
+
+  if (password.length < 6) {
+    passwordInput.classList.add('error');
+    showError('Password must be at least 6 characters');
+    return;
+  }
+
+  // Add loading state
+  submitBtn.classList.add('loading');
+  submitBtn.disabled = true;
   const confirmPassword = document.getElementById('register-confirm-password').value;
 
   if (!username || !email || !password || !confirmPassword) {
@@ -862,11 +937,16 @@ async function handleRegister(e) {
 
       showError('Registration successful!', false); // Show as success message
     } else {
+      if (data.error.includes('Email')) emailInput.classList.add('error');
+      if (data.error.includes('Username')) usernameInput.classList.add('error');
       showError(data.error || 'Registration failed');
     }
   } catch (error) {
     console.error('Registration error:', error);
     showError('Registration failed. Please try again.');
+  } finally {
+    submitBtn.classList.remove('loading');
+    submitBtn.disabled = false;
   }
 }
 

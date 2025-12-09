@@ -268,35 +268,50 @@
     <!-- Login Modal -->
     <div id="login-modal" class="modal hidden">
       <div class="modal-content auth-modal">
-        <div class="modal-header">
-          <h3>Login to Your Account</h3>
-          <button id="login-close-btn" class="close-btn">&times;</button>
+        <button id="login-close-btn" class="close-btn">&times;</button>
+        <div class="auth-header">
+          <div class="auth-icon">🔐</div>
+          <h3>Welcome Back</h3>
+          <p>Sign in to continue your file sharing</p>
         </div>
-        <form id="login-form">
-          <div class="input-group">
-            <label for="login-username">Username or Email:</label>
+        <form id="login-form" class="auth-form">
+          <div class="input-wrapper">
+            <div class="input-icon">👤</div>
             <input
               type="text"
               id="login-username"
-              placeholder="Enter your username or email"
+              placeholder="Username or Email"
               required
+              class="auth-input"
             />
           </div>
-          <div class="input-group">
-            <label for="login-password">Password:</label>
+          <div class="input-wrapper">
+            <div class="input-icon">🔒</div>
             <input
               type="password"
               id="login-password"
-              placeholder="Enter your password"
+              placeholder="Password"
               required
+              class="auth-input"
             />
-          </div>
-          <div class="form-actions">
-            <button type="submit" class="btn primary">Login</button>
-            <button type="button" id="show-register-btn" class="btn secondary">
-              Need an account? Register
+            <button
+              type="button"
+              class="toggle-password"
+              data-target="login-password"
+            >
+              <span class="eye-icon">👁️</span>
             </button>
           </div>
+          <button type="submit" class="btn auth-submit">
+            <span>Sign In</span>
+            <span class="btn-arrow">→</span>
+          </button>
+          <div class="auth-divider">
+            <span>or</span>
+          </div>
+          <button type="button" id="show-register-btn" class="btn auth-switch">
+            Don't have an account? <strong>Sign Up</strong>
+          </button>
         </form>
       </div>
     </div>
@@ -304,44 +319,60 @@
     <!-- Register Modal -->
     <div id="register-modal" class="modal hidden">
       <div class="modal-content auth-modal">
-        <div class="modal-header">
+        <button id="register-close-btn" class="close-btn">&times;</button>
+        <div class="auth-header">
+          <div class="auth-icon">✨</div>
           <h3>Create Account</h3>
-          <button id="register-close-btn" class="close-btn">&times;</button>
+          <p>Join us to unlock unlimited file sharing</p>
         </div>
-        <form id="register-form">
-          <div class="input-group">
-            <label for="register-username">Username:</label>
+        <form id="register-form" class="auth-form">
+          <div class="input-wrapper">
+            <div class="input-icon">👤</div>
             <input
               type="text"
               id="register-username"
-              placeholder="Choose a username"
+              placeholder="Username"
               required
+              class="auth-input"
             />
           </div>
-          <div class="input-group">
-            <label for="register-email">Email:</label>
+          <div class="input-wrapper">
+            <div class="input-icon">📧</div>
             <input
               type="email"
               id="register-email"
-              placeholder="Enter your email"
+              placeholder="Email Address"
               required
+              class="auth-input"
             />
           </div>
-          <div class="input-group">
-            <label for="register-password">Password:</label>
+          <div class="input-wrapper">
+            <div class="input-icon">🔒</div>
             <input
               type="password"
               id="register-password"
-              placeholder="Create a password"
+              placeholder="Password (min 6 characters)"
               required
+              class="auth-input"
             />
-          </div>
-          <div class="form-actions">
-            <button type="submit" class="btn primary">Register</button>
-            <button type="button" id="show-login-btn" class="btn secondary">
-              Already have account? Login
+            <button
+              type="button"
+              class="toggle-password"
+              data-target="register-password"
+            >
+              <span class="eye-icon">👁️</span>
             </button>
           </div>
+          <button type="submit" class="btn auth-submit">
+            <span>Create Account</span>
+            <span class="btn-arrow">→</span>
+          </button>
+          <div class="auth-divider">
+            <span>or</span>
+          </div>
+          <button type="button" id="show-login-btn" class="btn auth-switch">
+            Already have an account? <strong>Sign In</strong>
+          </button>
         </form>
       </div>
     </div>
