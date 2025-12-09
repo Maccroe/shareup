@@ -309,20 +309,31 @@ class WebRTCManager {
     this.startedIds.add(outId);
 
     // Send file in chunks with speed throttling by user tier
-    // Larger chunks help premium users reach higher throughput
-    const chunkSize = 131072; // 128KB chunks for premium-grade speed
+    const chunkSize = 32768; // 32KB chunks for smooth progress display and speed control
     const user = window.currentUser;
     const isPremium = !!(user && user.subscription?.plan === 'premium' && user.subscription?.status === 'active');
     const isLoggedIn = !!user;
-    // Premium gets no throttle cap (uncapped), logged-in limited to 1 MB/s, anonymous to 0.03 MB/s
-    const targetBytesPerSec = isPremium ? 0 // No throttle for premium - full speed
-      : isLoggedIn ? (1 * 1024 * 1024) // ~1 MB/s for logged-in
-        : (30 * 1024); // ~0.03 MB/s for anonymous
 
-    // Calculate delay per chunk to respect target throughput
-    const throttleDelay = targetBytesPerSec > 0
-      ? Math.max(0, Math.round((chunkSize / targetBytesPerSec) * 1000))
-      : 0; // 0 delay for premium (targetBytesPerSec === 0)
+    console.log(`[WebRTC] Sending file as: ${isPremium ? 'PREMIUM' : isLoggedIn ? 'LOGGED-IN' : 'ANONYMOUS'}`);
+
+    // Backpressure thresholds - larger for premium to maintain speed
+    const HIGH_WATER_MARK = isPremium ? 1048576 * 2 : 262144; // 2MB for premium, 256KB for others
+    const LOW_WATER_MARK = isPremium ? 1048576 : 131072; // 1MB for premium, 128KB for others
+
+    // Pre-calculate throttle delay for consistent enforcement
+    let throttleDelayMs = 0;
+    if (!isPremium) {
+      let targetBytesPerSec;
+      if (isLoggedIn) {
+        // Logged-in user: max 1 MB/s
+        targetBytesPerSec = 1 * 1024 * 1024;
+      } else {
+        // Anonymous user: max 0.03 MB/s (30 KB/s)
+        targetBytesPerSec = 30 * 1024;
+      }
+      throttleDelayMs = (chunkSize / targetBytesPerSec) * 1000;
+      console.log(`[WebRTC] Throttle: ${throttleDelayMs.toFixed(2)}ms per ${chunkSize} bytes | Target: ${(targetBytesPerSec / 1024 / 1024).toFixed(4)} MB/s`);
+    }
 
     let offset = 0;
     const startTime = Date.now();
@@ -333,7 +344,10 @@ class WebRTCManager {
       total: file.size,
       sent: 0,
       avgSpeed: 0,
-      lastSpeedSendTime: 0
+      lastSpeedSendTime: 0,
+      lastProgressUpdateTime: Date.now(),
+      isPremium: isPremium,
+      isLoggedIn: isLoggedIn
     };
 
     while (offset < file.size) {
@@ -350,12 +364,26 @@ class WebRTCManager {
         await new Promise(resolve => setTimeout(resolve, 200));
         continue; // skip sending while paused
       }
+
+      // Smart backpressure handling for premium - prevents speed drops
+      if (this.dataChannel.bufferedAmount > HIGH_WATER_MARK) {
+        // Wait for buffer to drain to LOW_WATER_MARK
+        await new Promise(resolve => {
+          const checkBuffer = setInterval(() => {
+            if (this.dataChannel.bufferedAmount < LOW_WATER_MARK) {
+              clearInterval(checkBuffer);
+              resolve();
+            }
+          }, isPremium ? 5 : 10); // Check every 5ms for premium, 10ms for others
+        });
+      }
+
       const chunk = file.slice(offset, offset + chunkSize);
       const arrayBuffer = await chunk.arrayBuffer();
 
-      // Wait if buffer is full
-      while (this.dataChannel.bufferedAmount > chunkSize * 4) {
-        await new Promise(resolve => setTimeout(resolve, 10));
+      // Apply throttle BEFORE sending to enforce speed limit
+      if (!isPremium && throttleDelayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, throttleDelayMs));
       }
 
       this.dataChannel.send(arrayBuffer);
@@ -366,8 +394,8 @@ class WebRTCManager {
       const elapsed = Math.max(1, Date.now() - startTime);
       const instSpeed = offset / (elapsed / 1000);
 
-      // Smooth speed with exponential moving average for stable UI
-      const alpha = 0.15; // smoothing factor
+      // Exponential moving average with lighter smoothing for premium for more responsive display
+      const alpha = isPremium ? 0.12 : 0.15;
       if (!this.currentTransfer.avgSpeed) {
         this.currentTransfer.avgSpeed = instSpeed;
       } else {
@@ -375,14 +403,16 @@ class WebRTCManager {
       }
 
       const displaySpeed = this.currentTransfer.avgSpeed;
+
+      // Update progress UI more frequently for smooth display
       try {
         if (typeof outgoingFileProgress === 'function') {
           outgoingFileProgress(outId, progress, displaySpeed);
         }
       } catch (_) { }
 
-      // Send speed update to receiver every ~100ms for unified display
-      if (!this.currentTransfer.lastSpeedSendTime || Date.now() - this.currentTransfer.lastSpeedSendTime > 100) {
+      // Send speed update to receiver every ~50ms for unified display
+      if (!this.currentTransfer.lastSpeedSendTime || Date.now() - this.currentTransfer.lastSpeedSendTime > 50) {
         try {
           const speedUpdate = {
             type: 'file-speed-update',
@@ -393,11 +423,6 @@ class WebRTCManager {
           this.dataChannel.send(JSON.stringify(speedUpdate));
           this.currentTransfer.lastSpeedSendTime = Date.now();
         } catch (_) { }
-      }
-
-      // Throttle according to tier speed
-      if (throttleDelay > 0) {
-        await new Promise(resolve => setTimeout(resolve, throttleDelay));
       }
     }
 
@@ -420,6 +445,17 @@ class WebRTCManager {
 
     this.currentTransfer = null;
     return true; // started and finished
+  }
+
+  checkUserTier() {
+    const user = window.currentUser;
+    if (!user) {
+      return 'anonymous'; // Not logged in
+    }
+    if (user.subscription?.plan === 'premium' && user.subscription?.status === 'active') {
+      return 'premium'; // Premium subscription active
+    }
+    return 'logged-in'; // Free account
   }
 
   async sendFiles(files, ids) {
