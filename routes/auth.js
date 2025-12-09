@@ -78,11 +78,14 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Find user by username or email
+    // Escape special regex characters in username search
+    const escapedLogin = login.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Find user by username or email (case-insensitive)
     const user = await User.findOne({
       $or: [
-        { email: login.toLowerCase() },
-        { username: login.trim() }
+        { email: login.toLowerCase().trim() },
+        { username: { $regex: new RegExp(`^${escapedLogin}$`, 'i') } }
       ]
     });
 

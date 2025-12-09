@@ -1526,10 +1526,14 @@ async function createRoom() {
     // Process any queued signals (usually none for creator)
     processPendingSignals();
 
-    // Show delete button for creator
+    // Show delete button only for logged-in users (not anonymous)
     const deleteBtn = document.getElementById('delete-room-btn');
     if (deleteBtn) {
-      deleteBtn.classList.remove('hidden');
+      if (response.isAnonymous || !currentUser) {
+        deleteBtn.classList.add('hidden');
+      } else {
+        deleteBtn.classList.remove('hidden');
+      }
     }
 
     showScreen('room');
