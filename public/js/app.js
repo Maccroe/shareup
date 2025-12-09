@@ -2378,11 +2378,49 @@ function showError(message, isError = true) {
     showSuccess(message);
     return;
   }
-  showToast(message, 'error', 4000);
+
+  // For critical errors like connection loss, use modal
+  if (message.includes('Connection lost') || message.includes('connection lost')) {
+    showErrorModal(message);
+  } else {
+    // For regular errors, use toast
+    showToast(message, 'error', 4000);
+  }
 }
 
 function hideError() {
-  // Toast notifications auto-dismiss, nothing to hide
+  const modal = document.getElementById('error-modal');
+  if (modal) {
+    hideModal('error-modal');
+  }
+}
+
+function showErrorModal(message) {
+  const errorModal = document.getElementById('error-modal');
+  const errorMsg = document.getElementById('error-message');
+  if (!errorModal) {
+    console.error('Error modal not found');
+    alert(message);
+    return;
+  }
+  if (errorMsg) {
+    errorMsg.textContent = message;
+  }
+  // Force visibility
+  const forceStyle = {
+    position: 'fixed',
+    inset: '0',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(0,0,0,0.6)',
+    zIndex: '20000',
+    visibility: 'visible',
+    opacity: '1',
+    pointerEvents: 'auto'
+  };
+  Object.assign(errorModal.style, forceStyle);
+  showModal('error-modal');
 }
 
 function showRoomExitedModal() {
@@ -2481,6 +2519,20 @@ document.addEventListener('DOMContentLoaded', () => {
       e.target.value = value;
     });
   }
+
+  // Add cursor-tracking glow effect to room history items
+  document.addEventListener('mousemove', (e) => {
+    const roomItems = document.querySelectorAll('.room-history-item');
+    roomItems.forEach(item => {
+      const rect = item.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      // Set CSS variables for the glow position
+      item.style.setProperty('--mouse-x', `${x}px`);
+      item.style.setProperty('--mouse-y', `${y}px`);
+    });
+  });
 });
 
 // Room History and Management Functions
@@ -2512,36 +2564,39 @@ function displayRoomHistory(rooms) {
   const historyList = document.getElementById('room-history-list');
 
   if (!rooms || rooms.length === 0) {
-    historyList.innerHTML = '<p class="no-rooms">No recent rooms found.</p>';
+    historyList.innerHTML = '<p class="no-rooms">📭 No recent rooms found. Create one to get started!</p>';
     return;
   }
 
-  historyList.innerHTML = rooms.map(room => {
+  historyList.innerHTML = rooms.map((room, index) => {
     const expiresAt = new Date(room.expiresAt);
     const now = new Date();
     const timeLeft = expiresAt - now;
     const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
     const minutesLeft = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
 
+    const isCreator = room.role === 'creator';
+    const roleIcon = isCreator ? '👑' : '👤';
+    const roleText = isCreator ? 'Creator' : 'Participant';
+
+    console.log(`Room ${room.roomId}: role=${room.role}, isCreator=${isCreator}`);
+
     return `
-      <div class="room-history-item ${room.isActive ? 'active' : ''}">
+      <div class="room-history-item ${room.isActive ? 'active' : ''}" style="animation-delay: ${index * 0.08}s;">
         <div class="room-info">
           <div class="room-code">${room.roomId}</div>
           <div class="room-details">
-            <span class="room-role">${room.role === 'creator' ? '👤 Creator' : '👥 Participant'}</span>
-            <span class="room-participants">${room.participants} participant(s)</span>
-            <span class="room-expires">Expires in ${hoursLeft}h ${minutesLeft}m</span>
+            <span class="room-role ${isCreator ? 'creator' : ''}">${roleIcon} ${roleText}</span>
+            <span class="room-participants">👥 ${room.participants} participant(s)</span>
+            <span class="room-expires">⏱️ ${hoursLeft}h ${minutesLeft}m</span>
           </div>
         </div>
         <div class="room-actions">
           ${room.isActive ?
-        '<span class="active-indicator">Currently in room</span>' :
-        `<button onclick="rejoinRoom('${room.roomId}')" class="btn secondary small">Rejoin</button>`
+        '<span class="active-indicator">🟢 Active</span>' :
+        `<button onclick="rejoinRoom('${room.roomId}')" class="btn secondary small">↩️ Rejoin</button>`
       }
-          ${room.role === 'creator' ?
-        `<button onclick="deleteRoom('${room.roomId}')" class="btn danger small" title="Delete Room" style="margin-left: 8px;">🗑️</button>` :
-        ''
-      }
+          ${isCreator ? `<button onclick="deleteRoomDirect('${room.roomId}')" class="btn danger small" title="Delete this room" style="margin-left: 8px;">🗑️ Delete</button>` : ''}
         </div>
       </div>
     `;
@@ -2641,6 +2696,30 @@ async function deleteRoom(roomId) {
   } catch (error) {
     console.error('Delete room error:', error);
     showError('Failed to delete room: ' + error.message);
+  }
+}
+
+// Delete room directly from history without rejoining
+async function deleteRoomDirect(roomId) {
+  // Show confirmation toast with better UX
+  if (!confirm('🗑️ Delete this room permanently? This cannot be undone.')) {
+    return;
+  }
+
+  try {
+    const response = await new Promise((resolve) => {
+      socket.emit('delete-room', { roomId }, resolve);
+    });
+
+    if (response.success) {
+      showToast('✅ Room deleted successfully', 'success', 3000);
+      loadRoomHistory(); // Refresh room history to remove deleted room
+    } else {
+      showToast('❌ Failed to delete room: ' + response.error, 'error', 4000);
+    }
+  } catch (error) {
+    console.error('Delete room error:', error);
+    showToast('❌ Error deleting room: ' + error.message, 'error', 4000);
   }
 }
 
