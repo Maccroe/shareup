@@ -1526,6 +1526,12 @@ async function createRoom() {
     // Process any queued signals (usually none for creator)
     processPendingSignals();
 
+    // Show delete button for creator
+    const deleteBtn = document.getElementById('delete-room-btn');
+    if (deleteBtn) {
+      deleteBtn.classList.remove('hidden');
+    }
+
     showScreen('room');
     updateConnectionStatus(false);
 
@@ -1568,6 +1574,12 @@ async function joinRoom() {
 
     currentRoom = roomCode;
     document.getElementById('room-code-display').textContent = roomCode;
+
+    // Hide delete button for participants (only creator can delete)
+    const deleteBtn = document.getElementById('delete-room-btn');
+    if (deleteBtn) {
+      deleteBtn.classList.add('hidden');
+    }
 
     // Process any offers/candidates received during join
     processPendingSignals();
