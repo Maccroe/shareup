@@ -2602,6 +2602,33 @@ function displayRoomHistory(rooms) {
       </div>
     `;
   }).join('');
+
+  // Add cursor tracking for room history items
+  setTimeout(() => {
+    const historyItems = document.querySelectorAll('.room-history-item');
+    historyItems.forEach(item => {
+      item.addEventListener('mousemove', (e) => {
+        const rect = item.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // Calculate angle based on cursor position
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        const angle = Math.atan2(y - centerY, x - centerX) * (180 / Math.PI) + 90;
+
+        // Set CSS custom properties
+        item.style.setProperty('--mouse-x', `${x}px`);
+        item.style.setProperty('--mouse-y', `${y}px`);
+        item.style.setProperty('--angle', `${angle}deg`);
+      });
+
+      item.addEventListener('mouseleave', () => {
+        item.style.setProperty('--mouse-x', '50%');
+        item.style.setProperty('--mouse-y', '50%');
+      });
+    });
+  }, 100);
 }
 
 async function rejoinRoom(roomId) {
