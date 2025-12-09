@@ -2748,6 +2748,136 @@ body.logged-in .anonymous-bulk-info {
   }
 }
 
+/* Room Exited Modal Animations */
+@keyframes wave-hand {
+  0%,
+  100% {
+    transform: rotate(0deg);
+    transform-origin: 70% 70%;
+  }
+  25% {
+    transform: rotate(14deg);
+    transform-origin: 70% 70%;
+  }
+  50% {
+    transform: rotate(-8deg);
+    transform-origin: 70% 70%;
+  }
+  75% {
+    transform: rotate(14deg);
+    transform-origin: 70% 70%;
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes slide-up-fade {
+  0% {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.room-exited-modal {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  border-radius: 20px !important;
+  max-width: 400px;
+  margin: auto;
+}
+
+.room-exited-animation {
+  text-align: center;
+  padding: 40px 30px;
+  color: white;
+}
+
+.exit-emoji {
+  font-size: 80px;
+  margin-bottom: 20px;
+  animation: wave-hand 2s infinite;
+  display: inline-block;
+}
+
+.room-exited-animation h2 {
+  font-size: 2.5rem;
+  margin: 15px 0;
+  font-weight: 700;
+  animation: slide-up-fade 0.6s ease-out;
+}
+
+.exit-message {
+  font-size: 1.1rem;
+  opacity: 0.95;
+  margin: 15px 0 30px 0;
+  animation: slide-up-fade 0.6s ease-out 0.1s both;
+}
+
+.exit-confetti {
+  position: relative;
+  height: 120px;
+  margin: 20px 0;
+  pointer-events: none;
+}
+
+.confetti {
+  position: absolute;
+  font-size: 2rem;
+  animation: confetti-fall 1.5s ease-out forwards;
+}
+
+.confetti-1 {
+  left: 10%;
+  animation-delay: 0s;
+}
+
+.confetti-2 {
+  left: 30%;
+  animation-delay: 0.1s;
+}
+
+.confetti-3 {
+  left: 50%;
+  animation-delay: 0.2s;
+}
+
+.confetti-4 {
+  left: 70%;
+  animation-delay: 0.15s;
+}
+
+.confetti-5 {
+  left: 90%;
+  animation-delay: 0.25s;
+}
+
+#room-exited-continue-btn {
+  margin-top: 20px;
+  background: white;
+  color: #667eea;
+  font-weight: 600;
+  padding: 12px 40px;
+  border-radius: 25px;
+  animation: slide-up-fade 0.6s ease-out 0.2s both;
+}
+
+#room-exited-continue-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
 .premium-details {
   width: 100%;
   display: grid;

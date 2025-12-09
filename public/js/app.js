@@ -19,6 +19,7 @@ window.outgoingControl = new Map();
 let currentUser = null;
 let authToken = null;
 let isReconnecting = false; // Flag to prevent disconnect error during auth reconnection
+let isIntentionalDisconnect = false; // Flag to distinguish intentional leave from connection loss
 
 // Room timer state
 let roomTimer = null;
@@ -329,8 +330,12 @@ function initializeSocket() {
     if (webrtc) {
       webrtc.disconnect();
     }
-    // Only show error if it's not an intentional reconnection
-    if (!isReconnecting) {
+    // Show room exited modal only if user intentionally left
+    // Otherwise, show connection lost error if not reconnecting
+    if (isIntentionalDisconnect) {
+      isIntentionalDisconnect = false; // Reset flag
+      showRoomExitedModal();
+    } else if (!isReconnecting) {
       showError('Connection lost. Please refresh the page.');
     }
   });
@@ -1577,6 +1582,9 @@ async function joinRoom() {
 }
 
 function leaveRoom() {
+  // Mark this as intentional disconnect so the disconnect handler knows
+  isIntentionalDisconnect = true;
+
   // Clear room timer
   clearRoomTimer();
 
@@ -2412,6 +2420,26 @@ function hideError() {
   modal.style.visibility = '';
   modal.style.opacity = '';
   modal.style.pointerEvents = '';
+}
+
+function showRoomExitedModal() {
+  const modal = document.getElementById('room-exited-modal');
+  if (!modal) {
+    console.error('Room exited modal not found');
+    return;
+  }
+
+  // Show the modal
+  showModal('room-exited-modal');
+
+  // Set up the continue button
+  const continueBtn = document.getElementById('room-exited-continue-btn');
+  if (continueBtn) {
+    continueBtn.onclick = () => {
+      hideModal('room-exited-modal');
+      showScreen('home');
+    };
+  }
 }
 
 function showSuccess(message) {
