@@ -2378,48 +2378,11 @@ function showError(message, isError = true) {
     showSuccess(message);
     return;
   }
-  console.log('Showing error:', message);
-  const errorModal = document.getElementById('error-modal');
-  const errorMsg = document.getElementById('error-message');
-  if (!errorModal) {
-    console.error('Error modal not found');
-    alert(message);
-    return;
-  }
-  if (errorMsg) {
-    errorMsg.textContent = message;
-  }
-  // Force visibility in case CSS is overridden or cached
-  const forceStyle = {
-    position: 'fixed',
-    inset: '0',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'rgba(0,0,0,0.6)',
-    zIndex: '20000',
-    visibility: 'visible',
-    opacity: '1',
-    pointerEvents: 'auto'
-  };
-  Object.assign(errorModal.style, forceStyle);
-  showModal('error-modal');
+  showToast(message, 'error', 4000);
 }
 
 function hideError() {
-  const modal = document.getElementById('error-modal');
-  if (!modal) return;
-  hideModal('error-modal');
-  modal.style.position = '';
-  modal.style.inset = '';
-  modal.style.display = '';
-  modal.style.alignItems = '';
-  modal.style.justifyContent = '';
-  modal.style.background = '';
-  modal.style.zIndex = '';
-  modal.style.visibility = '';
-  modal.style.opacity = '';
-  modal.style.pointerEvents = '';
+  // Toast notifications auto-dismiss, nothing to hide
 }
 
 function showRoomExitedModal() {
@@ -2442,32 +2405,68 @@ function showRoomExitedModal() {
   }
 }
 
-function showSuccess(message) {
-  // Simple success notification - you can enhance this
-  console.log('Success:', message);
+// Toast Notification System
+const toastQueue = [];
+let toastTimeout = null;
 
-  // Create temporary success message
-  const successDiv = document.createElement('div');
-  successDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: #d4edda;
-        color: #155724;
-        padding: 12px 24px;
-        border-radius: 8px;
-        border: 1px solid #c3e6cb;
-        z-index: 1001;
-        font-weight: 500;
-    `;
-  successDiv.textContent = message;
+function showToast(message, type = 'success', duration = 3000) {
+  console.log(`Toast [${type}]:`, message);
 
-  document.body.appendChild(successDiv);
+  const container = document.getElementById('toast-container');
+  if (!container) {
+    console.error('Toast container not found');
+    alert(message);
+    return;
+  }
 
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+
+  // Icon mapping
+  const icons = {
+    success: '✓',
+    error: '✕',
+    info: 'ℹ',
+    warning: '⚠'
+  };
+
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type] || '•'}</span>
+    <span class="toast-message">${message}</span>
+    <button class="toast-close" aria-label="Close toast">×</button>
+  `;
+
+  // Add to container
+  container.appendChild(toast);
+
+  // Close button handler
+  const closeBtn = toast.querySelector('.toast-close');
+  const removeToast = () => {
+    toast.classList.add('removing');
+    setTimeout(() => {
+      if (toast.parentNode) {
+        container.removeChild(toast);
+      }
+    }, 400); // Match animation duration
+  };
+
+  closeBtn.addEventListener('click', removeToast);
+
+  // Auto-remove after duration
   setTimeout(() => {
-    document.body.removeChild(successDiv);
-  }, 3000);
+    if (toast.parentNode) {
+      removeToast();
+    }
+  }, duration);
+}
+
+function showSuccess(message) {
+  showToast(message, 'success', 3000);
+}
+
+function showWarning(message) {
+  showToast(message, 'warning', 3500);
 }
 
 // Auto-format room code input
