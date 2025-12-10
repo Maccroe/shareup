@@ -126,6 +126,14 @@ function logout() {
   window.currentUser = null;
   authToken = null;
   localStorage.removeItem('authToken');
+
+  // Clear profile modal content when logging out
+  hideModal('profile-modal');
+  const profileRoomsList = document.getElementById('profile-rooms');
+  if (profileRoomsList) {
+    profileRoomsList.innerHTML = '';
+  }
+
   updateUserUI(false);
 
   // Reconnect socket without auth
