@@ -344,8 +344,9 @@ router.delete('/account', requireAuth, async (req, res) => {
       });
     }
 
-    // Soft delete - just deactivate the account
+    // Soft delete - deactivate the account and record deactivation timestamp
     req.user.isActive = false;
+    req.user.deactivatedAt = new Date();
     await req.user.save();
 
     res.json({

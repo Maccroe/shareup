@@ -41,6 +41,7 @@ const AnonymousLimit = require('./models/AnonymousLimit');
 const Room = require('./models/Room');
 const discordLogger = require('./utils/discord');
 const TimezoneHelper = require('./utils/timezone');
+const { initializeCleanupService, stopCleanupService } = require('./utils/cleanup');
 
 const app = express();
 const server = http.createServer(app);
@@ -470,6 +471,13 @@ connectDB().then(async (connected) => {
       await Room.cleanExpiredRooms();
     } catch (error) {
       console.error('Error cleaning up expired rooms on startup:', error);
+    }
+
+    // Initialize auto-cleanup service for deactivated accounts
+    try {
+      initializeCleanupService(logger);
+    } catch (error) {
+      console.error('Error initializing cleanup service:', error);
     }
   } else {
     console.error('Failed to connect to MongoDB. Some features may not work properly.');
@@ -1579,4 +1587,25 @@ server.listen(PORT, () => {
   } else {
     logger.warn(`Invalid timezone '${timezone}' configured. Using UTC instead.`);
   }
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  logger.essential('Shutting down gracefully...');
+  stopCleanupService(logger);
+  server.close(() => {
+    logger.essential('Server closed');
+    mongoose.connection.close();
+    process.exit(0);
+  });
+});
+
+process.on('SIGTERM', () => {
+  logger.essential('SIGTERM received, shutting down gracefully...');
+  stopCleanupService(logger);
+  server.close(() => {
+    logger.essential('Server closed');
+    mongoose.connection.close();
+    process.exit(0);
+  });
 });

@@ -51,6 +51,10 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  deactivatedAt: {
+    type: Date,
+    default: null
+  },
   subscription: {
     plan: {
       type: String,
