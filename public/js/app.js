@@ -147,6 +147,76 @@ function logout() {
   }
 }
 
+// Delete account function
+async function deleteAccount() {
+  // Prompt user for password confirmation
+  const password = prompt('Enter your password to confirm account deletion:');
+
+  if (!password) {
+    return; // User cancelled
+  }
+
+  if (!authToken) {
+    showError('Not authenticated');
+    return;
+  }
+
+  try {
+    showLoading('Deleting account...');
+
+    const response = await fetch('/api/auth/account', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify({ password })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to delete account');
+    }
+
+    // Clear auth data and logout
+    currentUser = null;
+    window.currentUser = null;
+    authToken = null;
+    localStorage.removeItem('authToken');
+
+    hideLoading();
+    showSuccess('Account deleted successfully. Redirecting...');
+
+    // Clear profile modal and logout
+    hideModal('profile-modal');
+    const profileRoomsList = document.getElementById('profile-rooms');
+    if (profileRoomsList) {
+      profileRoomsList.innerHTML = '';
+    }
+
+    updateUserUI(false);
+
+    // Disconnect socket and reconnect without auth
+    if (socket) {
+      isReconnecting = true;
+      socket.disconnect();
+      setTimeout(() => {
+        initializeSocket();
+        isReconnecting = false;
+        showScreen('home');
+      }, 100);
+    } else {
+      showScreen('home');
+    }
+
+  } catch (error) {
+    console.error('Delete account error:', error);
+    hideLoading();
+    showError(error.message || 'Failed to delete account');
+  }
+}
+
 // Show premium upgrade modal
 function showPremiumModal() {
   console.log('showPremiumModal called');
@@ -2852,3 +2922,4 @@ async function deleteRoomDirect(roomId) {
 // Ensures availability even if bundlers or scopes change
 window.deleteRoom = deleteRoom;
 window.rejoinRoom = rejoinRoom;
+window.deleteAccount = deleteAccount;
