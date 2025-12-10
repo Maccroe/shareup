@@ -898,22 +898,7 @@ async function handleRegister(e) {
   // Add loading state
   submitBtn.classList.add('loading');
   submitBtn.disabled = true;
-  const confirmPassword = document.getElementById('register-confirm-password').value;
-
-  if (!username || !email || !password || !confirmPassword) {
-    showError('Please fill in all fields');
-    return;
-  }
-
-  if (password !== confirmPassword) {
-    showError('Passwords do not match');
-    return;
-  }
-
-  if (password.length < 6) {
-    showError('Password must be at least 6 characters long');
-    return;
-  }
+  // Confirm password field is not present; basic validations already applied above
 
   try {
     const response = await fetch('/api/auth/register', {
