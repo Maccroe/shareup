@@ -848,6 +848,10 @@ async function handleLogin(e) {
       socket.disconnect();
       setTimeout(() => {
         initializeSocket();
+        // Load room history after socket reconnection
+        setTimeout(() => {
+          loadRoomHistory();
+        }, 300);
         isReconnecting = false;
       }, 100);
 
@@ -940,6 +944,10 @@ async function handleRegister(e) {
       socket.disconnect();
       setTimeout(() => {
         initializeSocket();
+        // Load room history after socket reconnection
+        setTimeout(() => {
+          loadRoomHistory();
+        }, 300);
         isReconnecting = false;
       }, 100);
 
