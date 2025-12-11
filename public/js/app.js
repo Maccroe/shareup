@@ -281,6 +281,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check for payment success/cancel
   await checkPaymentStatus();
 
+  // Restore received files from previous session (crash recovery)
+  await restoreReceivedFilesFromDB();
+
   initializeSocket();
   setupEventListeners();
   setupAuthEventListeners();
@@ -2045,6 +2048,15 @@ function downloadFile(fileName) {
   document.body.removeChild(a);
 
   URL.revokeObjectURL(url);
+
+  // Delete from IndexedDB after successful download
+  if (file.id && file.id.includes('-')) {
+    deleteReceivedFileFromDB(file.id).catch(e => {
+      console.warn('Could not clean up IndexedDB:', e);
+    });
+  }
+
+  showToast('✅ File downloaded successfully', 'success', 2000);
 }
 
 function clearReceivedFiles() {
@@ -2918,8 +2930,165 @@ async function deleteRoomDirect(roomId) {
   }
 }
 
+// IndexedDB Persistence for Received Files (Crash Recovery)
+// This allows large files (100MB+) to be recovered even if browser crashes during transfer
+
+const DB_NAME = 'shareup_files_db';
+const STORE_NAME = 'received_files';
+const DB_VERSION = 1;
+
+// Initialize IndexedDB
+async function initializeFileDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = () => {
+      console.error('IndexedDB initialization failed');
+      reject(request.error);
+    };
+
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      }
+    };
+  });
+}
+
+// Persist received file to IndexedDB
+async function persistReceivedFile(file) {
+  try {
+    const db = await initializeFileDB();
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+
+    const fileRecord = {
+      id: `${Date.now()}-${file.name}`,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      blob: file.blob,
+      timestamp: Date.now()
+    };
+
+    const request = store.add(fileRecord);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        console.log('File persisted to IndexedDB:', file.name);
+        resolve(fileRecord.id);
+      };
+      request.onerror = () => {
+        console.error('Failed to persist file:', request.error);
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.error('IndexedDB persistence error:', error);
+    throw error;
+  }
+}
+
+// Retrieve file from IndexedDB
+async function getReceivedFileFromDB(fileId) {
+  try {
+    const db = await initializeFileDB();
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(fileId);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.error('Failed to retrieve file from IndexedDB:', error);
+    throw error;
+  }
+}
+
+// Get all received files from IndexedDB
+async function getAllReceivedFilesFromDB() {
+  try {
+    const db = await initializeFileDB();
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.getAll();
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.error('Failed to retrieve files from IndexedDB:', error);
+    throw error;
+  }
+}
+
+// Delete file from IndexedDB
+async function deleteReceivedFileFromDB(fileId) {
+  try {
+    const db = await initializeFileDB();
+    const transaction = db.transaction([STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.delete(fileId);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        console.log('File deleted from IndexedDB');
+        resolve();
+      };
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.error('Failed to delete file from IndexedDB:', error);
+    throw error;
+  }
+}
+
+// Restore received files from IndexedDB on page load
+async function restoreReceivedFilesFromDB() {
+  try {
+    const files = await getAllReceivedFilesFromDB();
+    if (files.length === 0) return;
+
+    console.log(`Restored ${files.length} file(s) from IndexedDB`);
+
+    if (!window.receivedFiles) {
+      window.receivedFiles = new Map();
+    }
+
+    for (const fileRecord of files) {
+      // Restore file to memory
+      window.receivedFiles.set(fileRecord.name, fileRecord);
+      // Display in UI
+      displayReceivedFile(fileRecord);
+    }
+
+    showToast(`✅ Recovered ${files.length} file(s) from previous session`, 'success', 4000);
+  } catch (error) {
+    console.error('Failed to restore files from IndexedDB:', error);
+  }
+}
+
 // Expose functions used by inline onclick handlers in room history
 // Ensures availability even if bundlers or scopes change
 window.deleteRoom = deleteRoom;
 window.rejoinRoom = rejoinRoom;
 window.deleteAccount = deleteAccount;
+window.restoreReceivedFilesFromDB = restoreReceivedFilesFromDB;

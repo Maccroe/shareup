@@ -231,7 +231,7 @@ class WebRTCManager {
     this.currentTransfer.senderSpeed = message.speed;
   }
 
-  handleFileComplete(message) {
+  async handleFileComplete(message) {
     if (!this.currentTransfer || !this.currentTransfer.receiving) return;
 
     const blob = new Blob(this.currentTransfer.chunks);
@@ -243,6 +243,14 @@ class WebRTCManager {
     };
 
     this.receivedFiles.push(file);
+
+    // Persist file to IndexedDB for recovery in case of browser crash
+    try {
+      await persistReceivedFile(file);
+    } catch (e) {
+      console.error('Failed to persist file to IndexedDB:', e);
+    }
+
     // Optionally flip per-file item to completed state before moving
     try {
       const key = this.currentTransfer.file.id || `${this.currentTransfer.file.name}:${this.currentTransfer.file.size}`;
