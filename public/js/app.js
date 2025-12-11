@@ -2930,14 +2930,16 @@ async function deleteRoomDirect(roomId) {
   }
 }
 
-// IndexedDB Persistence for Received Files (Crash Recovery)
-// This allows large files (100MB+) to be recovered even if browser crashes during transfer
+// IndexedDB Persistence for Received Files (Crash Recovery + iOS Streaming)
+// This allows large files (100MB+) to be streamed directly to disk on iOS
+// and recovered even if browser crashes during transfer
 
 const DB_NAME = 'shareup_files_db';
 const STORE_NAME = 'received_files';
-const DB_VERSION = 1;
+const CHUNKS_STORE_NAME = 'file_chunks';
+const DB_VERSION = 2;
 
-// Initialize IndexedDB
+// Initialize IndexedDB with both files and chunks stores
 async function initializeFileDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -2956,8 +2958,122 @@ async function initializeFileDB() {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains(CHUNKS_STORE_NAME)) {
+        db.createObjectStore(CHUNKS_STORE_NAME, { keyPath: 'id' });
+      }
     };
   });
+}
+
+// iOS Safari Streaming: Save individual chunks to IndexedDB during transfer
+async function saveChunkToIndexedDB(fileId, chunkIndex, data) {
+  try {
+    const db = await initializeFileDB();
+    const transaction = db.transaction([CHUNKS_STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(CHUNKS_STORE_NAME);
+
+    const chunkRecord = {
+      id: `${fileId}:${chunkIndex}`,
+      fileId: fileId,
+      chunkIndex: chunkIndex,
+      data: data  // ArrayBuffer or Uint8Array
+    };
+
+    const request = store.put(chunkRecord);
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        resolve();
+      };
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.error('Failed to save chunk to IndexedDB:', error);
+    throw error;
+  }
+}
+
+// Get all chunks for a file and assemble into blob
+async function getFileFromIndexedDB(fileId) {
+  try {
+    const db = await initializeFileDB();
+    const transaction = db.transaction([CHUNKS_STORE_NAME], 'readonly');
+    const store = transaction.objectStore(CHUNKS_STORE_NAME);
+    const request = store.getAll();
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const records = request.result;
+
+        // Filter chunks for this file and sort by index
+        const fileChunks = records
+          .filter(r => r.fileId === fileId)
+          .sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+        if (fileChunks.length === 0) {
+          resolve(null);
+          return;
+        }
+
+        // Assemble blob from chunks
+        const dataArray = fileChunks.map(chunk => chunk.data);
+        const blob = new Blob(dataArray);
+        resolve(blob);
+      };
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.error('Failed to get file from IndexedDB:', error);
+    throw error;
+  }
+}
+
+// Delete all chunks for a file after assembly
+async function clearChunksFromIndexedDB(fileId) {
+  try {
+    const db = await initializeFileDB();
+    const transaction = db.transaction([CHUNKS_STORE_NAME], 'readwrite');
+    const store = transaction.objectStore(CHUNKS_STORE_NAME);
+    const request = store.getAll();
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => {
+        const records = request.result;
+        const chunkIds = records
+          .filter(r => r.fileId === fileId)
+          .map(r => r.id);
+
+        // Delete each chunk
+        let deleteCount = 0;
+        for (const id of chunkIds) {
+          const deleteReq = store.delete(id);
+          deleteReq.onsuccess = () => {
+            deleteCount++;
+            if (deleteCount === chunkIds.length) {
+              resolve();
+            }
+          };
+          deleteReq.onerror = () => {
+            reject(deleteReq.error);
+          };
+        }
+
+        if (chunkIds.length === 0) {
+          resolve();
+        }
+      };
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  } catch (error) {
+    console.error('Failed to clear chunks from IndexedDB:', error);
+    throw error;
+  }
 }
 
 // Persist received file to IndexedDB
